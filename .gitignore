@@ -1,0 +1,34 @@
+# === 敏感与私有配置目录 ===
+config/
+
+# === 数据与训练模型目录 ===
+train/
+notes/
+
+# === 故障排除与本地调试记录 ===
+troubleshooting/
+
+# === Python 虚拟环境与依赖 ===
+.venv/
+venv/
+env/
+ENV/
+dist/
+build/
+*.egg-info/
+
+# === 缓存与编译临时文件 ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === IDE与编辑器配置 ===
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
