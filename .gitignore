@@ -8,6 +8,7 @@ notes/
 
 # === 故障排除与本地调试记录 ===
 troubleshooting/
+scratch/
 
 # === Python 虚拟环境与依赖 ===
 .venv/
