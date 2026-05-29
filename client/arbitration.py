@@ -54,8 +54,12 @@ async def arbitrate(req: ArbitrationRequest):
         {"role": "system", "content": ARBITRAION_SYSTEM_PROMPT},
         {"role": "user", "content": req.query}
     ]
+    model_name = MODEL_ENDPOINT
+    if "deepseek" in BASE_URL.lower() and "doubao" in model_name.lower():
+        model_name = "deepseek-chat"
+
     body = {
-        "model": MODEL_ENDPOINT,
+        "model": model_name,
         "messages": messages,
         "max_tokens": 2048,
         "temperature": 0,

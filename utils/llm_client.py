@@ -25,6 +25,17 @@ load_config()
 API_KEY = os.getenv("API_KEY", "")
 BASE_URL = os.getenv("BASE_URL", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
 
+# 标准化 BASE_URL，兼容 DeepSeek/OpenAI 等厂商填入裸域名的情景，自动补齐标准 OpenAI 路由
+if BASE_URL:
+    BASE_URL_LOWER = BASE_URL.lower()
+    if not BASE_URL_LOWER.endswith("/chat/completions") and not BASE_URL_LOWER.endswith("/chat/completions/"):
+        if "deepseek" in BASE_URL_LOWER:
+            BASE_URL = BASE_URL.rstrip("/") + "/v1/chat/completions"
+        elif "api.openai.com" in BASE_URL_LOWER:
+            BASE_URL = BASE_URL.rstrip("/") + "/v1/chat/completions"
+        else:
+            BASE_URL = BASE_URL.rstrip("/") + "/v1/chat/completions"
+
 # 判断是否是 Mock 模式（如果 API_KEY 包含 xxxx 或是空的，则为 Mock 模式）
 IS_MOCK = not API_KEY or "xxxx" in API_KEY
 
@@ -72,6 +83,8 @@ async def call_llm_async(messages: list, stream: bool = False, temperature: floa
     # 豆包大模型在 v3 接口中需要传入 Endpoint ID 作为 model
     # 我们优先尝试从环境变量 MODEL_ENDPOINT 读取，若无则使用默认值
     model_name = os.getenv("MODEL_ENDPOINT", "doubao-pro-4k")
+    if "deepseek" in BASE_URL.lower() and "doubao" in model_name.lower():
+        model_name = "deepseek-chat"
     
     payload = {
         "model": model_name,

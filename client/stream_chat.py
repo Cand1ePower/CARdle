@@ -86,8 +86,12 @@ async def process_chat_frames(chat_ctx: dict):
             "Content-Type": "application/json",
             "Authorization": API_KEY if API_KEY.startswith("Bearer") else f"Bearer {API_KEY}"
         }
+        model_name = MODEL_ENDPOINT
+        if "deepseek" in BASE_URL.lower() and "doubao" in model_name.lower():
+            model_name = "deepseek-chat"
+
         body = {
-            "model": MODEL_ENDPOINT,
+            "model": model_name,
             "messages": messages,
             "stream": True
         }
