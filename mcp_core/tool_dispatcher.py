@@ -167,7 +167,21 @@ async def dispatch_tool(function: str, slots: dict) -> str:
     logger.info(f"[Dispatcher] 调用工具 {function}({kwargs})")
 
     try:
-        result = await tool_func(**kwargs)
+        # 核心保障：检查函数签名，仅传递合法的参数，防止外部/NLU的多余槽位导致 TypeError 崩溃
+        import inspect
+        sig = inspect.signature(tool_func)
+        filtered_kwargs = {}
+        has_var_keyword = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values())
+        
+        if has_var_keyword:
+            filtered_kwargs = kwargs
+        else:
+            for param_name, param in sig.parameters.items():
+                if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+                    if param_name in kwargs:
+                        filtered_kwargs[param_name] = kwargs[param_name]
+
+        result = await tool_func(**filtered_kwargs)
         result_str = json.dumps(result, ensure_ascii=False)
         logger.info(f"[Dispatcher] 工具返回: {result_str[:200]}")
         return result_str

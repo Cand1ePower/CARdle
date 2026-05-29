@@ -22,6 +22,9 @@ from client.nlg import request_nlg_async
 # ── MCP 工具分发中心 ──
 from mcp_core.tool_dispatcher import dispatch_tool
 
+# ── 对话管理器 DM 工厂 ──
+from function_call.dm.factory import DMFactory, get_domain_by_intent
+
 import prompts
 
 # ============================================================
@@ -245,9 +248,17 @@ async def request_nlu(sid, data_str):
             function = nlu_response.get("function", "Unknown")
 
             if function not in ["Unknown", ""]:
-                # ── MCP 工具执行 + NLG 润色 ──
-                tool_response = await dispatch_tool(function, nlu_response.get("slots", {}))
-                nlg_text = await request_nlg_async(rewritten_query, tool_response)
+                # ── 引入 DM 工厂决策模式 ──
+                domain = get_domain_by_intent(function)
+                dm_process = DMFactory.get(domain)
+                if dm_process:
+                    # 委托给领域 DM 统一处理 (槽位清洗、接口调度、NLG 润色一气呵成)
+                    raw_response, nlg_text = await dm_process(function, rewritten_query, nlu_response.get("slots", {}))
+                    tool_response = json.dumps(raw_response, ensure_ascii=False)
+                else:
+                    # 兜底旧有分发
+                    tool_response = await dispatch_tool(function, nlu_response.get("slots", {}))
+                    nlg_text = await request_nlg_async(rewritten_query, tool_response)
 
                 response = _build_base(query, trace_id, begin, degraded_count)
                 response.update({
