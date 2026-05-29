@@ -27,10 +27,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 确保在 tests 下运行时，引用路径正确
 SERVICES = {
     "rewrite":       ("client/rewrite.py",               8006),
-    "reject":        ("client/reject.py",                8007),
+    "reject":        ("train/reject_infer.py",           8007),
     "arbitration":   ("client/arbitration.py",           8008),
     "correlation":   ("client/correlation.py",           8009),
     "chatnlu_infer": ("function_call/chatnlu_infer.py",  8015),
+    # "intent_infer":  ("train/intent_infer.py",           8016), # 注释掉以测试断联时的全量大模型降级
 }
 
 async def is_port_in_use(port):

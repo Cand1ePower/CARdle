@@ -1,0 +1,250 @@
+{
+  "Vehicle_Hardware_Control": {
+    "Position": "位置",
+    "Ratio": "ratio",
+    "Extreme": "Extreme"
+  },
+  "Music_Genre_Platform": {
+    "genre": "歌曲流派",
+    "charts": "榜单"
+  },
+  "System_Interface_Settings": {
+    "One_Level": "一级菜单设置项",
+    "Two_Level": "二级菜单设置项"
+  },
+  "Vehicle_Status_Query": {
+    "component": "车况组件"
+  },
+  "Phone_Communication": {
+    "Contact": "联系人",
+    "Phone_Number": "联系电话"
+  },
+  "Schedule_Reminder_Management": {
+    "Time": "时间",
+    "Content": "提醒内容"
+  },
+  "Navigation_Location_Query": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Smart_Home_Control": "无",
+  "Music_Artist_Album": {
+    "Singer": "歌手",
+    "album": "专辑"
+  },
+  "Radio_Broadcast": {
+    "Name": "节目名称"
+  },
+  "Request_Specific_Song": {
+    "Song": "歌曲",
+    "Singer": "歌手"
+  },
+  "Children_Story_Play": {
+    "Name": "故事名称"
+  },
+  "Bluetooth_Audio_Settings": "无",
+  "App_Management": {
+    "app": "应用"
+  },
+  "Vehicle_Performance_Query": "无",
+  "Health_Monitoring": "无",
+  "Account_Voiceprint_Management": "无",
+  "Himalaya_Content_Play": "无",
+  "Meituan_Service_Booking": {
+    "service": "服务项"
+  },
+  "Huawei_Sport_Health": "无",
+  "Hot_News": "无",
+  "Channel_News_Search": {
+    "Type": "新闻类型",
+    "Key": "新闻关键字"
+  },
+  "News_Event_Interpretation": {
+    "Event": "新闻事件"
+  },
+  "Knowledge_Natural_Science": "无",
+  "Knowledge_Engineering_Technology": "无",
+  "Knowledge_Medical_Health": "无",
+  "Knowledge_Social_Science": "无",
+  "Knowledge_Culture_Art": "无",
+  "Knowledge_History_Archaeology": "无",
+  "Knowledge_Sports": "无",
+  "Knowledge_Tourism_Geography": "无",
+  "Knowledge_Business_Economics": "无",
+  "Knowledge_Biography": "无",
+  "Knowledge_Books_Literature": "无",
+  "Knowledge_Movies_TV": "无",
+  "Knowledge_Games_Anime": "无",
+  "Knowledge_Life_Leisure": "无",
+  "Knowledge_Education_Research": "无",
+  "Knowledge_Politics_Military": "无",
+  "Knowledge_Religion_Philosophy": "无",
+  "Knowledge_Laws_Regulations": "无",
+  "Knowledge_Network_Technology": "无",
+  "Knowledge_Transportation": "无",
+  "Jokes": "无",
+  "Tongue_Twisters": "无",
+  "Scientific_Calculation": "无",
+  "Unit_Conversion": "无",
+  "Time_Query": "无",
+  "Exchange_Rate_Conversion": "无",
+  "Translation": "无",
+  "Horoscope": "无",
+  "Ancient_Poetry": "无",
+  "Stories": "无",
+  "Card_Games": "无",
+  "Dining_Places": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Restaurants": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Chinese_Restaurants": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Fast_Food_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Hotpot_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Barbecue_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Teahouses": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Bars": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Drink_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Snack_Streets": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Night_Markets": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Bakeries_Dessert_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Parks": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Arcades": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Board_Game_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "LARP_Game_Shops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Chess_Card_Rooms": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Bookstores": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Shopping_Malls": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Ice_Skating_Rinks": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Ski_Resorts": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Cinemas": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "KTV": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "DIY_Workshops": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Amusement_Parks": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Zoos": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Botanical_Gardens": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Aquariums": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Museums": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Art_Galleries": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Tourist_Attractions": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Agritainment_Resorts": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Hot_Springs_Spa_Centers": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Sports_Stadiums": {
+    "POI": "POI",
+    "City": "city"
+  },
+  "Delicious_Fun": "无",
+  "Daily_Greetings": "无",
+  "Emotional_Companion": "无",
+  "Complaints_Complains": "无",
+  "Car_Machine_Knowledge": "无",
+  "Vehicle_Knowledge": "无",
+  "Car_Insurance_Knowledge": "无",
+  "Traffic_Rules_Knowledge": "无",
+  "License_Plate_Origin_Knowledge": "无",
+  "Vehicle_Purchase_Lease_Knowledge": "无",
+  "Driving_Skills_Safety_Knowledge": "无",
+  "Voice_Operation_Knowledge": "无",
+  "Common_Car_Questions": "无",
+  "Driving_Habit_Score": "无",
+  "Query_Weather": {
+    "location": "city",
+    "date": "date"
+  }
+}

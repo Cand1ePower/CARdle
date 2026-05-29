@@ -28,13 +28,16 @@ async def request_nlu_async(query: str, trace_id: str = "", enable_dm: bool = Tr
         "enable_dm": enable_dm
     }
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(NLU_URL, json=payload)
             res = response.json()
             logger.info(f"[NLU] result: {res}")
             return res
     except Exception as e:
-        logger.error(f"[NLU] 调用失败: {e}")
+        err_msg = str(e)
+        if 'response' in locals() and hasattr(response, 'text'):
+            err_msg += f" | 原始响应: {response.text}"
+        logger.error(f"[NLU] 调用失败: {err_msg}")
         return {
             "intent": "Unknown",
             "intent_id": "440",
