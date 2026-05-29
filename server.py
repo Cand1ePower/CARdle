@@ -16,8 +16,11 @@ from client.stream_chat import request_chat_async, process_chat_frames
 # ── NLU 薄封装客户端（直接 import，非 HTTP 调用） ──
 from client.nlu import request_nlu_async
 
-# ── NLG 润色模块（直接 import，Phase 6 MCP 接入后全面使用） ──
+# ── NLG 润色模块（直接 import） ──
 from client.nlg import request_nlg_async
+
+# ── MCP 工具分发中心 ──
+from mcp_core.tool_dispatcher import dispatch_tool
 
 import prompts
 
@@ -242,10 +245,9 @@ async def request_nlu(sid, data_str):
             function = nlu_response.get("function", "Unknown")
 
             if function not in ["Unknown", ""]:
-                # ── 已识别技能：Phase 6 接入 MCP 工具后，这里将加入工具执行 + NLG 润色 ──
-                # tool_response = await execute_mcp_tool(function, nlu_response.get("slots", {}))
-                # nlg_text = await request_nlg_async(rewritten_query, tool_response)
-                nlg_text = ""  # Phase 6 占位
+                # ── MCP 工具执行 + NLG 润色 ──
+                tool_response = await dispatch_tool(function, nlu_response.get("slots", {}))
+                nlg_text = await request_nlg_async(rewritten_query, tool_response)
 
                 response = _build_base(query, trace_id, begin, degraded_count)
                 response.update({
