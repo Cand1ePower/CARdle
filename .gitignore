@@ -1,6 +1,22 @@
 # === 敏感与私有配置目录 ===
 config/
 
+# === 环境变量（含 API Key，绝不上传）===
+.env
+
+# === 数据库文件 ===
+db/*.db
+db/*.db-shm
+db/*.db-wal
+
+# === Redis 便携版（Windows 本地开发用，Ubuntu 用 apt 安装）===
+redis/
+redis.zip
+
+# === 运行时日志 ===
+logs/
+*.log
+
 # === 数据与训练模型目录 ===
 train/
 

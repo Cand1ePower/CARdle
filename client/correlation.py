@@ -1,7 +1,7 @@
 import uvicorn
 import os
 import sys
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 # 确保能导入 root 目录下的模块
@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.llm_client import call_llm_async
 from prompts import CORRELATION_SYSTEM, CORRELATION_PROMPT
+from utils.logger import session
 
 app = FastAPI(title="CARdle 多轮关联性判定服务", version="2.0.0")
 
@@ -16,8 +17,9 @@ class CorrelationRequest(BaseModel):
     query: str
 
 @app.post("/chatnlu-server/v1")
-async def correlate(req: CorrelationRequest):
-    print(f"[Correlation Service] 收到多轮关联性判定请求: '{req.query}'")
+async def correlate(req: CorrelationRequest, request: Request):
+    session.trace_id = request.headers.get("X-Trace-Id", "unknown")
+    print(f"[Correlation Service] 收到多轮关联性判定请求: '{req.query}' | TraceID: {session.trace_id}")
     query = req.query.strip()
     
     # 模拟关联判定（后续阶段引入 Redis 后将真正比对上一轮句子）：

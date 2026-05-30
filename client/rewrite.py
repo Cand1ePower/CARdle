@@ -1,7 +1,7 @@
 import uvicorn
 import os
 import sys
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 # 确保能导入 root 目录下的模块
@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.llm_client import call_llm_async
 from prompts import REWRITE_SYSTEM_PROMPT
+from utils.logger import session
 
 app = FastAPI(title="CARdle 多轮改写服务", version="2.0.0")
 
@@ -17,8 +18,9 @@ class RewriteRequest(BaseModel):
     last_answer: str = ""
 
 @app.post("/rewrite-server/v1")
-async def rewrite(req: RewriteRequest):
-    print(f"[Rewrite Service] 收到改写请求: '{req.query}' | 上轮回答: '{req.last_answer}'")
+async def rewrite(req: RewriteRequest, request: Request):
+    session.trace_id = request.headers.get("X-Trace-Id", "unknown")
+    print(f"[Rewrite Service] 收到改写请求: '{req.query}' | 上轮回答: '{req.last_answer}' | TraceID: {session.trace_id}")
     
     # 构造历史对话格式传入提示词
     if req.last_answer:

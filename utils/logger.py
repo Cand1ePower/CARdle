@@ -58,21 +58,20 @@ def Singleton(cls):
     return _singleton
 
 
-@Singleton
+import contextvars
+
+# 声明一个上下文变量，默认值为 "unknown"
+_trace_id_var = contextvars.ContextVar("trace_id", default="unknown")
+
 class Session:
-    """全局 trace_id 持有者（单例），在每次请求入口处设置 trace_id"""
-
-    def __init__(self):
-        super().__init__()
-        self._trace_id = ""
-
+    """包装类，对外保持原本的接口，底层读写转移到 contextvars"""
     @property
     def trace_id(self):
-        return self._trace_id
+        return _trace_id_var.get()
 
     @trace_id.setter
-    def trace_id(self, trace_id):
-        self._trace_id = trace_id
+    def trace_id(self, value):
+        _trace_id_var.set(value)
 
 
 def _getlogger():

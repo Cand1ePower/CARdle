@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.llm_client import API_KEY, BASE_URL, IS_MOCK
 from prompts import ARBITRAION_SYSTEM_PROMPT
 from utils import logger
+from utils.logger import session
 
 app = FastAPI(title="CARdle 多路仲裁分流服务", version="2.0.0")
 
@@ -23,8 +24,9 @@ class ArbitrationRequest(BaseModel):
 
 
 @app.post("/intent-server/v1")
-async def arbitrate(req: ArbitrationRequest):
-    logger.info(f"[Arbitration] query='{req.query}'")
+async def arbitrate(req: ArbitrationRequest, request: Request):
+    session.trace_id = request.headers.get("X-Trace-Id", "unknown")
+    logger.info(f"[Arbitration] query='{req.query}' | TraceID: {session.trace_id}")
 
     # ── Mock 模式：关键词快速分类 ──
     if IS_MOCK:

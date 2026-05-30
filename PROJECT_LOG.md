@@ -25,17 +25,13 @@
 | **本地意图模型 (Intent)** | `8016` | ⚠️ 打底模式 | 规划使用 439 类本地分类模型。结合 ChatNLU 已实现 0 感知降级。 |
 | **模型训练框架 (Train)** | `-` | ✅ 已完成 | 编写了现代化的 HuggingFace `hf_train.py` 脚本，支持混合精度及多卡分布式训练。 |
 | **离线数据合成 (Dataset)** | `-` | ✅ 已完成 | 根据新下载的 `Interaction_Agent_Dataset_V0.1` 数据集共计 5 大类、102 小类的意图定义，以原系统配置格式，完美生成了全新的 `dataset/class.txt`、`dataset/new_map.json` 和 `dataset/slot_intent.json`。 |
-
+| **混合双层存储 (DB Layer)** | `-` | ✅ 已完成 | 采用 Redis (内存 KV) 处理多轮会话、防抖锁与车辆实时状态；采用 SQLite 异步并发 (WAL) 处理全量审计日志持久化。完美实现多车机用户绝对隔离，并使用 `contextvars` 解决了 ASGI 下日志并发串线隐患。 |
+| **部署与开发者体验** | `-` | ✅ 已完成 | 提供 `start_dev.bat` 一键唤起彩虹多屏微服务矩阵；提供 Ubuntu 一键部署及启停 `deploy/*.sh` 脚本。 |
 ## 4. 待实现的功能规划 (Roadmap)
 
 根据整体开发计划，我们还有以下关键领域待攻克：
 
-### 🔴 Phase 5: Redis 结构化记忆与状态管理
-
-- **目标**：引入 Redis，存储多轮对话中的 `trace_id`、上下文对象和车辆当前状态。
-- **痛点解决**：让座舱机器人拥有真正的连续对话记忆（例如：“把它打开”能够知道“它”指代前一句提到的空调）。
-
-### 🔴 Phase 8: Tesla-Style 炫酷车载前端 UI 界面
+### 🔴 Phase 6: Tesla-Style 炫酷车载前端 UI 界面
 
 - **目标**：使用 Vue/React (或 Vanilla JS) 打造一个具有现代科技感的高拟真车机前端。
 - **功能**：

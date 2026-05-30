@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 # 确保能导入 root 目录下的模块
@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.llm_client import call_llm_async, IS_MOCK
 from prompts import NLU_SYSTEM_PROMPT
+from utils.logger import session
 
 app = FastAPI(title="CARdle 车机 NLU 意图识别与槽位提取服务", version="2.0.0")
 
@@ -39,8 +40,9 @@ async def get_top5_intents(query: str):
         return fallback_list
 
 @app.post("/chatnlu/v1")
-async def chatnlu_infer(req: NLURequest):
-    print(f"[NLU Service] 收到 NLU 解析请求: '{req.query}'")
+async def chatnlu_infer(req: NLURequest, request: Request):
+    session.trace_id = request.headers.get("X-Trace-Id", "unknown")
+    print(f"[NLU Service] 收到 NLU 解析请求: '{req.query}' | TraceID: {session.trace_id}")
     query = req.query.strip()
     
     # === 分层漏斗核心：1. 粗排召回 ===

@@ -1,0 +1,55 @@
+# CARdle 核心运行时依赖
+# 生成方式: pip freeze > requirements.txt
+# 安装方式: pip install -r requirements.txt
+
+# ── 核心 Web 框架 ──
+fastapi==0.136.3
+uvicorn==0.48.0
+starlette==1.1.0
+
+# ── WebSocket (Socket.IO) ──
+python-socketio==5.16.2
+python-engineio==4.13.2
+simple-websocket==1.1.0
+bidict==0.23.1
+
+# ── HTTP 客户端 ──
+httpx==0.28.1
+httpcore==1.0.9
+requests==2.34.2
+
+# ── 数据验证 ──
+pydantic==2.13.4
+pydantic_core==2.46.4
+annotated-types==0.7.0
+
+# ── 持久化层 ──
+redis==8.0.0           # Redis 异步客户端 (注: 需搭配 Redis Server 5.x/6.x/7.x)
+aiosqlite==0.22.1      # 异步 SQLite 驱动
+
+# ── 环境变量管理 ──
+python-dotenv==1.2.2
+
+# ── 异步与并发 ──
+anyio==4.13.0
+asyncio-mqtt==0.16.2 ; False  # 仅在需要 MQTT 时启用
+
+# ── AI 推理 (本地小模型, 仅训练/推理服务需要) ──
+# torch==2.12.0          # 取消注释以启用本地模型推理
+# transformers==5.9.0
+# tokenizers==0.22.2
+# accelerate==1.13.0
+# safetensors==0.7.0
+# datasets==4.8.5
+# Observability
+langfuse>=2.0.0
+# evaluate==0.4.6
+
+# ── 工具库 ──
+python-dateutil==2.9.0.post0
+tqdm==4.67.3
+packaging==26.2
+typing_extensions==4.15.0
+
+# ── WebSocket 客户端 (interactive_test.py 使用) ──
+websocket-client==1.9.0

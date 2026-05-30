@@ -39,10 +39,28 @@ if BASE_URL:
 # 判断是否是 Mock 模式（如果 API_KEY 包含 xxxx 或是空的，则为 Mock 模式）
 IS_MOCK = not API_KEY or "xxxx" in API_KEY
 
+try:
+    from langfuse.decorators import observe, langfuse_context
+except ImportError:
+    # 如果没安装，提供一个哑装饰器
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    langfuse_context = None
+
+@observe(as_type="generation")
 async def call_llm_async(messages: list, stream: bool = False, temperature: float = 0.3) -> str:
     """
     通用异步 LLM 调用函数，具备 Mock 自动降级与 OpenAI 协议兼容性。
     """
+    from utils.logger import session
+    if langfuse_context and session.trace_id and session.trace_id != "unknown":
+        langfuse_context.update_current_observation(
+            trace_id=session.trace_id,
+            model=os.getenv("MODEL_ENDPOINT", "doubao-pro-4k"),
+        )
+
     if IS_MOCK:
         user_content = messages[-1]["content"] if messages else ""
         system_content = messages[0]["content"] if messages else ""
