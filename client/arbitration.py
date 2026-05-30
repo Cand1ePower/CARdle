@@ -5,6 +5,7 @@ import json
 import httpx
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
+from typing import List, Dict, Any
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,49 +14,52 @@ from prompts import ARBITRAION_SYSTEM_PROMPT
 from utils import logger
 from utils.logger import session
 
-app = FastAPI(title="CARdle 多路仲裁分流服务", version="2.0.0")
+app = FastAPI(title="CARdle 云端意图仲裁服务", version="2.0.0")
 
 MODEL_ENDPOINT = os.getenv("MODEL_ENDPOINT", "doubao-pro-4k")
-TIMEOUT = 2.0
+TIMEOUT = 5.0  # 增加超时时间，因为要输出完整的 JSON
 
+
+class CandidateIntent(BaseModel):
+    intent: str
+    slots: Dict[str, Any]
 
 class ArbitrationRequest(BaseModel):
     query: str
+    history: List[Dict[str, str]] = []
+    candidates: List[CandidateIntent]
 
 
 @app.post("/intent-server/v1")
 async def arbitrate(req: ArbitrationRequest, request: Request):
     session.trace_id = request.headers.get("X-Trace-Id", "unknown")
-    logger.info(f"[Arbitration] query='{req.query}' | TraceID: {session.trace_id}")
+    logger.info(f"[Arbitration] query='{req.query}' | candidates_count={len(req.candidates)} | TraceID: {session.trace_id}")
 
-    # ── Mock 模式：关键词快速分类 ──
+    # ── Mock 模式 ──
     if IS_MOCK:
-        task_keywords = [
-            "空调", "导航", "播放", "打开", "关闭", "去", "地图", "温度", "音量",
-            "调高", "调低", "一点", "高点", "低点", "大声", "小声", "调", "设为"
-        ]
-        faq_keywords = ["怎么", "如何", "什么是", "能量回收", "单踏板", "手册", "功能", "介绍"]
-        
-        if any(w in req.query for w in task_keywords):
-            text = "A"
-        elif any(w in req.query for w in faq_keywords):
-            text = "B"
+        if req.candidates:
+            chosen = req.candidates[0].dict()
         else:
-            text = "C"
-            
-        branch = _map_branch(text)
-        logger.info(f"[Arbitration] Mock result={text} -> branch={branch}")
-        return {"branch": branch, "degraded": False}
+            chosen = {"intent": "Unknown", "slots": {}}
+        logger.info(f"[Arbitration] Mock result={chosen}")
+        return {"intent": chosen.get("intent"), "slots": chosen.get("slots"), "degraded": False}
 
-    # ── 真实 API：stream=True 只读第一个有效 token ──
+    # ── 真实 API：让云端大模型从候选集中选一个最优的并输出 JSON ──
     headers = {
         "Content-Type": "application/json",
         "Authorization": API_KEY if API_KEY.startswith("Bearer") else f"Bearer {API_KEY}"
     }
+    
+    # 构造 Prompt 的上下文
+    history_text = json.dumps(req.history, ensure_ascii=False)
+    candidates_text = json.dumps([c.dict() for c in req.candidates], ensure_ascii=False)
+    user_content = f"【对话历史】：\n{history_text}\n\n【最新指令】：\n{req.query}\n\n【候选意图集】：\n{candidates_text}"
+    
     messages = [
         {"role": "system", "content": ARBITRAION_SYSTEM_PROMPT},
-        {"role": "user", "content": req.query}
+        {"role": "user", "content": user_content}
     ]
+    
     model_name = MODEL_ENDPOINT
     if "deepseek" in BASE_URL.lower() and "doubao" in model_name.lower():
         model_name = "deepseek-chat"
@@ -63,56 +67,46 @@ async def arbitrate(req: ArbitrationRequest, request: Request):
     body = {
         "model": model_name,
         "messages": messages,
-        "max_tokens": 2048,
-        "temperature": 0,
-        "stream": True   # 核心：流式调用，极速拿到第一个字符即停止
+        "max_tokens": 1024,
+        "temperature": 0.1,
+        "stream": False,
+        "response_format": {"type": "json_object"} if "deepseek" in model_name.lower() or "gpt" in model_name.lower() else None
     }
+    
+    # 清理不支持 response_format 的情况
+    if body["response_format"] is None:
+        del body["response_format"]
 
     try:
-        text = "A"  # 默认兜底走 task
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            async with client.stream("POST", BASE_URL, headers=headers, json=body) as response:
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    line = line.lstrip("data: ")
-                    if line == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(line)
-                        token = data["choices"][0]["delta"].get("content", "")
-                        if not token:
-                            continue
-                        text = token.strip().upper()
-                        break  # 只读第一个有效 token，立即停止，最低延迟
-                    except Exception:
-                        continue
-
-        if text not in ["A", "B", "C", "D"]:
-            text = "A"
-
-        branch = _map_branch(text)
-        logger.info(f"[Arbitration] stream first-token={text} -> branch={branch}")
-        return {"branch": branch, "degraded": False}
+            resp = await client.post(BASE_URL, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            result_text = data["choices"][0]["message"]["content"]
+            
+            # 清理可能的 Markdown 标记
+            result_text = result_text.strip()
+            if result_text.startswith("```json"):
+                result_text = result_text[7:]
+            if result_text.startswith("```"):
+                result_text = result_text[3:]
+            if result_text.endswith("```"):
+                result_text = result_text[:-3]
+                
+            result_json = json.loads(result_text)
+            logger.info(f"[Arbitration] LLM chose intent: {result_json}")
+            
+            return {
+                "intent": result_json.get("intent", "Unknown"), 
+                "slots": result_json.get("slots", {}), 
+                "degraded": False
+            }
 
     except Exception as e:
         logger.error(f"[Arbitration] API error: {e}")
-        return {"branch": "task", "degraded": True}
-
-
-def _map_branch(text: str) -> str:
-    """
-    A -> task (车控任务)
-    B -> faq  (车辆手册/功能介绍)
-    C/D -> chat (闲聊/百科/无效输入)
-    """
-    if text in ("C", "D"):
-        return "chat"
-    elif text == "B":
-        return "faq"
-    else:
-        return "task"
-
+        # 降级：直接取本地候选集里的第一个（置信度最高的）
+        fallback_intent = req.candidates[0].dict() if req.candidates else {"intent": "Unknown", "slots": {}}
+        return {"intent": fallback_intent.get("intent"), "slots": fallback_intent.get("slots"), "degraded": True}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8008)

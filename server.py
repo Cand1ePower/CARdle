@@ -174,18 +174,28 @@ async def request_reject_async(query: str) -> dict:
         return {"reject_score": 0, "is_reject": False, "degraded": True}
 
 
-async def request_arbitration_async(query: str) -> dict:
-    """第 3 路：多路仲裁分流（stream 读第一 token，在 arbitration.py 侧实现）"""
+@observe(as_type="generation", name="Arbitration_Step")
+async def request_arbitration_async(query: str, history: list, candidates: list) -> dict:
+    """第 3 路：云端意图仲裁（基于 Top-K 候选集）"""
     try:
-        headers = {"X-Trace-Id": logger.session.trace_id}
+        trace_id = logger.session.trace_id
+        headers = {"X-Trace-Id": trace_id}
+        payload = {
+            "query": query,
+            "history": history,
+            "candidates": candidates
+        }
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.post(INTENT_URL, json={"query": query}, headers=headers)
+            resp = await client.post(INTENT_URL, json=payload, headers=headers)
             result = resp.json()
-            logger.info(f"[Arbitration] branch='{result.get('branch', 'task')}'")
+            logger.info(f"[Arbitration] picked intent='{result.get('intent', 'Unknown')}'")
             return result
     except Exception as e:
-        logger.error(f"[Arbitration] 降级，走任务兜底: {e}")
-        return {"branch": "task", "degraded": True}
+        logger.error(f"[Arbitration] 降级，返回首选意图兜底: {e}")
+        # fallback to the first candidate if available
+        fallback_intent = candidates[0] if candidates else {"intent": "Unknown", "slots": {}}
+        return {"intent": fallback_intent.get("intent", "Unknown"), "slots": fallback_intent.get("slots", {}), "degraded": True}
+
 
 
 async def request_correlation_async(query: str) -> dict:
@@ -299,120 +309,150 @@ async def request_nlu(sid, data_str):
             last_answer = history_turns[-1].content if history_turns[-1].role == "assistant" else last_answer
             logger.info(f"[History] device={device_id} 读取到 {len(history_turns)} 条历史")
 
-        # ── 5 路并发 Fail-Safe 调度 ──
-        results = await asyncio.gather(
-            request_rewrite_async(query, last_answer),   # 1. 意图改写
-            request_reject_async(query),                  # 2. 安全拒识
-            request_arbitration_async(query),             # 3. 仲裁分流
-            request_correlation_async(query),             # 4. 关联性判定
-            _prefetch_chat_async(query),                  # 5. 闲聊预热
-            return_exceptions=True
-        )
+        # ── 终极端云协同：本地大模型串行分发 ──
+        # 1. 优先调用本地微调模型 (Gemma 1B)
+        nlu_response = await request_nlu_async(query, langfuse_trace_id)
+        
+        domain = nlu_response.get("domain", "A")
+        is_safe = nlu_response.get("is_safe", True)
+        rewritten_query = nlu_response.get("rewritten_query", query)
+        candidate_intents = nlu_response.get("candidate_intents", [])
+        
+        # 兼容旧字段
+        function = nlu_response.get("function", "Unknown")
+        if not candidate_intents and function != "Unknown":
+            candidate_intents = [{"intent": function, "slots": nlu_response.get("slots", {})}]
+
+        # ── 二次兜底与统计 ──
+        degraded_count = 0
         gather_cost = time.time() - begin
-
-        # ── 二次兜底 ──
-        rewrite_result     = results[0] if not isinstance(results[0], Exception) else {"rewrite_query": query, "degraded": True}
-        reject_result      = results[1] if not isinstance(results[1], Exception) else {"reject_score": 0, "is_reject": False, "degraded": True}
-        arbitration_result = results[2] if not isinstance(results[2], Exception) else {"branch": "task", "degraded": True}
-        correlation_result = results[3] if not isinstance(results[3], Exception) else {"is_correlated": True, "degraded": True}
-        chat_ctx           = results[4] if not isinstance(results[4], Exception) else {"mode": "mock", "reply": "抱歉，网络开小差了~", "degraded": True}
-
-        degraded_count = sum(
-            1 for r in [rewrite_result, reject_result, arbitration_result, correlation_result, chat_ctx]
-            if isinstance(r, dict) and r.get("degraded")
-        )
-        logger.info(f"5 路并发完成 cost={gather_cost:.4f}s degraded={degraded_count}/5")
-
-        # ── 决策变量 ──
-        rewritten_query = rewrite_result.get("rewrite_query", query)
-        is_reject = reject_result.get("is_reject", False) or reject_result.get("reject_score", 0) > 0.5
-        branch    = arbitration_result.get("branch", "task")
+        logger.info(f"本地 NLU 完成 cost={gather_cost:.4f}s domain={domain} safe={is_safe}")
 
         # ──────────────────────────────────────────
-        # 分支 1：拒识
+        # 分支 C/D：闲聊与无效指令（按需触发外置拒识和相关性）
         # ──────────────────────────────────────────
-        if is_reject:
-            logger.info("Branch: REJECT")
+        if domain in ["C", "D"]:
+            if not is_safe:
+                # 依然调用外置安全拒识以作双保险（可选，遵照用户意图）
+                reject_result = await request_reject_async(rewritten_query)
+                is_reject = reject_result.get("is_reject", False) or reject_result.get("reject_score", 0) > 0.5
+            else:
+                is_reject = False
+
+            if is_reject or not is_safe:
+                logger.info("Branch: REJECT")
+                response = _build_base(query, client_trace_id, begin, degraded_count)
+                response.update({
+                    "intent":    "拒识",
+                    "intent_id": "440",
+                    "func":      "REJECT",
+                    "frame":     prompts.DEFAULT_NLG,
+                    "seq":       1,
+                    "status":    -1,
+                    "branch":    "reject",
+                })
+                await sio.emit("request_nlu", json.dumps(response, ensure_ascii=False), to=sid)
+            else:
+                # 安全，进入相关性检查
+                correlation_result = await request_correlation_async(rewritten_query)
+                if correlation_result.get("is_correlated", True):
+                    logger.info("Branch: CHAT (three-frame streaming)")
+                    # 预热闲聊
+                    chat_ctx = await request_chat_async(rewritten_query)
+                    seq = 1
+                    full_answer = ""
+                    async for frame_content, status in process_chat_frames(chat_ctx):
+                        frame_resp = _build_base(query, client_trace_id, begin, degraded_count)
+                        frame_resp.update({
+                            "intent":    "闲聊百科",
+                            "intent_id": "439",
+                            "func":      "CHAT",
+                            "frame":     frame_content,
+                            "seq":       seq,
+                            "status":    status,
+                            "branch":    "chat",
+                        })
+                        await sio.emit("request_nlu", json.dumps(frame_resp, ensure_ascii=False), to=sid)
+                        if status == 1:
+                            full_answer += frame_content
+                            seq += 1
+                    logger.info(f"Chat complete seq={seq} answer='{full_answer[:40]}'")
+                else:
+                    # 不相关且为 C/D，直接拒识
+                    logger.info("Branch: REJECT (Uncorrelated)")
+                    response = _build_base(query, client_trace_id, begin, degraded_count)
+                    response.update({
+                        "intent":    "拒识",
+                        "intent_id": "440",
+                        "func":      "REJECT",
+                        "frame":     prompts.DEFAULT_NLG,
+                        "seq":       1,
+                        "status":    -1,
+                        "branch":    "reject",
+                    })
+                    await sio.emit("request_nlu", json.dumps(response, ensure_ascii=False), to=sid)
+
+        # ──────────────────────────────────────────
+        # 分支 B：功能说明 / FAQ (RAG 预留)
+        # ──────────────────────────────────────────
+        elif domain == "B":
+            logger.info(f"Branch: FAQ (RAG Placeholder) rewritten='{rewritten_query}'")
             response = _build_base(query, client_trace_id, begin, degraded_count)
             response.update({
-                "intent":    "拒识",
-                "intent_id": "440",
-                "func":      "REJECT",
-                "frame":     prompts.DEFAULT_NLG,
-                "seq":       1,
-                "status":    -1,
-                "branch":    "reject",
+                "rewrite_query": rewritten_query,
+                "intent":        "车辆功能问答",
+                "intent_id":     "441",
+                "func":          "FAQ",
+                "function":      "FAQ",
+                "slots":         {},
+                "frame":         "关于车辆功能的解答，我们将通过 RAG 系统为您服务。",
+                "seq":           1,
+                "status":        0,
+                "branch":        "faq",
             })
             await sio.emit("request_nlu", json.dumps(response, ensure_ascii=False), to=sid)
 
         # ──────────────────────────────────────────
-        # 分支 2：闲聊（三帧流式推送协议）
-        # ──────────────────────────────────────────
-        elif branch == "chat":
-            logger.info("Branch: CHAT (three-frame streaming)")
-            seq = 1
-            full_answer = ""
-
-            async for frame_content, status in process_chat_frames(chat_ctx):
-                frame_resp = _build_base(query, client_trace_id, begin, degraded_count)
-                frame_resp.update({
-                    "intent":    "闲聊百科",
-                    "intent_id": "439",
-                    "func":      "CHAT",
-                    "frame":     frame_content,
-                    "seq":       seq,
-                    "status":    status,
-                    "branch":    "chat",
-                })
-                await sio.emit("request_nlu", json.dumps(frame_resp, ensure_ascii=False), to=sid)
-
-                if status == 1:
-                    full_answer += frame_content
-                    seq += 1
-
-            logger.info(f"Chat complete seq={seq} answer='{full_answer[:40]}'")
-
-        # ──────────────────────────────────────────
-        # 分支 3：任务型车控 / FAQ
+        # 分支 A：任务型车控
         # ──────────────────────────────────────────
         else:
-            logger.info(f"Branch: TASK/FAQ rewritten='{rewritten_query}'")
-
-            # 调用 NLU 薄封装客户端进行意图识别
-            nlu_response = await request_nlu_async(rewritten_query, langfuse_trace_id)
-            function = nlu_response.get("function", "Unknown")
+            logger.info(f"Branch: TASK rewritten='{rewritten_query}' candidates={len(candidate_intents)}")
+            
+            # 如果有多个候选意图，或者我们需要云端确信，则调用精排仲裁
+            arbitration_result = await request_arbitration_async(rewritten_query, history_turns, candidate_intents)
+            function = arbitration_result.get("intent", "Unknown")
+            slots = arbitration_result.get("slots", {})
 
             if function not in ["Unknown", ""]:
                 # ── 引入 DM 工厂决策模式 ──
-                domain = get_domain_by_intent(function)
-                dm_process = DMFactory.get(domain)
+                domain_name = get_domain_by_intent(function)
+                dm_process = DMFactory.get(domain_name)
                 if dm_process:
-                    # 委托给领域 DM 统一处理 (槽位清洗、接口调度、NLG 润色一气呵成)
-                    raw_response, nlg_text = await dm_process(function, rewritten_query, nlu_response.get("slots", {}))
+                    # 委托给领域 DM 统一处理
+                    raw_response, nlg_text = await dm_process(function, rewritten_query, slots)
                     tool_response = json.dumps(raw_response, ensure_ascii=False)
                 else:
                     # 兜底旧有分发
-                    tool_response = await dispatch_tool(function, nlu_response.get("slots", {}))
-                    # 如果工具未注册或没有返回，提供一个默认成功状态，让 NLG 能生成自然语言回复
+                    tool_response = await dispatch_tool(function, slots)
                     fallback_response = tool_response if tool_response else "指令下发成功"
                     nlg_text = await request_nlg_async(rewritten_query, fallback_response)
 
                 response = _build_base(query, client_trace_id, begin, degraded_count)
                 response.update({
                     "rewrite_query": rewritten_query,
-                    "intent":        nlu_response.get("intent", "Unknown"),
-                    "intent_id":     nlu_response.get("intent_id", "440"),
+                    "intent":        function,
+                    "intent_id":     "1",  # Mock ID
                     "func":          "SKILL",
                     "function":      function,
-                    "slots":         nlu_response.get("slots", {}),
+                    "slots":         slots,
                     "frame":         nlg_text,
                     "seq":           1,
                     "status":        0,
-                    "branch":        branch,
+                    "branch":        "task",
                 })
             else:
                 # ── Unknown：技能未识别，降级为拒识回包 ──
-                logger.info(f"NLU returned Unknown, degrading to REJECT")
+                logger.info(f"Arbitration returned Unknown, degrading to REJECT")
                 response = _build_base(query, client_trace_id, begin, degraded_count)
                 response.update({
                     "rewrite_query": rewritten_query,
@@ -422,7 +462,7 @@ async def request_nlu(sid, data_str):
                     "frame":         prompts.DEFAULT_NLG,
                     "seq":           1,
                     "status":        -1,
-                    "branch":        branch,
+                    "branch":        "reject",
                 })
 
             await sio.emit("request_nlu", json.dumps(response, ensure_ascii=False), to=sid)
