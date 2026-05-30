@@ -42,7 +42,7 @@ asyncio-mqtt==0.16.2 ; False  # 仅在需要 MQTT 时启用
 # safetensors==0.7.0
 # datasets==4.8.5
 # Observability
-langfuse>=2.0.0
+langfuse>=4.0.0
 # evaluate==0.4.6
 
 # ── 工具库 ──

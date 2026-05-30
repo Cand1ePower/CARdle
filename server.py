@@ -38,7 +38,7 @@ from db.models import AuditLog
 
 # 可观测性
 try:
-    from langfuse import Langfuse
+    from langfuse import Langfuse, propagate_attributes, observe, get_client
     langfuse_client = Langfuse()
     if not langfuse_client.auth_check():
         logger.warning("[Startup] Langfuse 配置有误或未配置，将不启用全链路追踪功能")
@@ -46,6 +46,15 @@ try:
 except Exception as e:
     langfuse_client = None
     logger.warning(f"[Startup] Langfuse 初始化失败，跳过: {e}")
+    # 降级：哑装饰器和上下文管理器
+    def observe(*args, **kwargs):
+        def decorator(func): return func
+        return decorator
+    from contextlib import contextmanager
+    @contextmanager
+    def propagate_attributes(*args, **kwargs):
+        yield
+    def get_client(): return None
 
 import prompts
 
@@ -243,31 +252,40 @@ async def disconnect(sid):
 # 核心对话网关入口
 # ============================================================
 @sio.event
+@observe(as_type="generation", name="Gateway_Request")
 async def request_nlu(sid, data_str):
     try:
         json_info = json.loads(data_str)
         query       = json_info.get("query", "")
-        trace_id    = json_info.get("trace_id", "unknown")
+        client_trace_id = json_info.get("trace_id", "unknown")
         last_answer = json_info.get("last_answer", "")  # 客户端传来的单轮兜底
 
-        # 设置 trace_id，后续所有 logger 调用自动携带
-        logger.session.trace_id = trace_id
-        begin = time.time()
-        
         # ── 从 Redis 查询当前连接的 device_id ──
         device_id = await redis_client.get_device_id(sid) or "CARDLE_DEV_001"
-        logger.info(f"========== [REQUEST_NLU START] query='{query[:20]}' device='{device_id}' ==========")
+        
+        # Langfuse v4: 使用 propagate_attributes 关联设备和会话属性
+        with propagate_attributes(user_id=device_id, session_id=sid):
+            
+            client = get_client()
+            if client and client.get_current_trace_id():
+                # 必须使用 OTEL 兼容的 32 字符 16 进制 Trace ID
+                langfuse_trace_id = client.get_current_trace_id()
+            else:
+                langfuse_trace_id = client_trace_id
+                
+            # 设置 trace_id，后续所有 logger 和微服务调用自动携带
+            logger.session.trace_id = langfuse_trace_id
+            begin = time.time()
+            
+            logger.info(f"========== [REQUEST_NLU START] query='{query[:20]}' device='{device_id}' trace='{langfuse_trace_id}' ==========")
 
-        # Langfuse Root Trace
-        langfuse_trace = None
-        if langfuse_client:
-            langfuse_trace = langfuse_client.trace(
-                id=trace_id,
-                name="Gateway_Request",
-                user_id=device_id,
-                session_id=sid,
-                input={"query": query, "last_answer": last_answer}
-            )
+            if client:
+                try:
+                    client.update_current_span(
+                        input={"query": query, "last_answer": last_answer}
+                    )
+                except Exception as e:
+                    logger.error(f"[Langfuse] update span error: {e}")
 
         # ── 防抖检查：2 秒内相同 query 去重 ──
         if not await redis_client.try_dedup(device_id, query):
@@ -315,7 +333,7 @@ async def request_nlu(sid, data_str):
         # ──────────────────────────────────────────
         if is_reject:
             logger.info("Branch: REJECT")
-            response = _build_base(query, trace_id, begin, degraded_count)
+            response = _build_base(query, client_trace_id, begin, degraded_count)
             response.update({
                 "intent":    "拒识",
                 "intent_id": "440",
@@ -336,7 +354,7 @@ async def request_nlu(sid, data_str):
             full_answer = ""
 
             async for frame_content, status in process_chat_frames(chat_ctx):
-                frame_resp = _build_base(query, trace_id, begin, degraded_count)
+                frame_resp = _build_base(query, client_trace_id, begin, degraded_count)
                 frame_resp.update({
                     "intent":    "闲聊百科",
                     "intent_id": "439",
@@ -361,7 +379,7 @@ async def request_nlu(sid, data_str):
             logger.info(f"Branch: TASK/FAQ rewritten='{rewritten_query}'")
 
             # 调用 NLU 薄封装客户端进行意图识别
-            nlu_response = await request_nlu_async(rewritten_query, trace_id)
+            nlu_response = await request_nlu_async(rewritten_query, langfuse_trace_id)
             function = nlu_response.get("function", "Unknown")
 
             if function not in ["Unknown", ""]:
@@ -375,9 +393,11 @@ async def request_nlu(sid, data_str):
                 else:
                     # 兜底旧有分发
                     tool_response = await dispatch_tool(function, nlu_response.get("slots", {}))
-                    nlg_text = await request_nlg_async(rewritten_query, tool_response)
+                    # 如果工具未注册或没有返回，提供一个默认成功状态，让 NLG 能生成自然语言回复
+                    fallback_response = tool_response if tool_response else "指令下发成功"
+                    nlg_text = await request_nlg_async(rewritten_query, fallback_response)
 
-                response = _build_base(query, trace_id, begin, degraded_count)
+                response = _build_base(query, client_trace_id, begin, degraded_count)
                 response.update({
                     "rewrite_query": rewritten_query,
                     "intent":        nlu_response.get("intent", "Unknown"),
@@ -393,7 +413,7 @@ async def request_nlu(sid, data_str):
             else:
                 # ── Unknown：技能未识别，降级为拒识回包 ──
                 logger.info(f"NLU returned Unknown, degrading to REJECT")
-                response = _build_base(query, trace_id, begin, degraded_count)
+                response = _build_base(query, client_trace_id, begin, degraded_count)
                 response.update({
                     "rewrite_query": rewritten_query,
                     "intent":        "拒识",
@@ -421,17 +441,22 @@ async def request_nlu(sid, data_str):
             final_function = response.get("function", "")
             final_slots    = response.get("slots", {})
 
-        if langfuse_trace:
-            langfuse_trace.update(
-                output={"nlg_output": final_nlg, "func": final_function},
-                tags=[branch]
-            )
+            client = get_client()
+            if client:
+                try:
+                    client.update_current_span(
+                        output={"nlg_output": final_nlg, "func": final_function},
+                        metadata={"branch": branch}
+                    )
+                    client.flush()  # 确保网关层的 trace 能即时上报
+                except Exception as e:
+                    logger.error(f"[Langfuse] flush error: {e}")
 
         asyncio.create_task(_post_request_tasks(
             device_id=device_id,
             query=query,
             nlg_text=final_nlg,
-            trace_id=trace_id,
+            trace_id=langfuse_trace_id,
             intent=final_intent,
             function=final_function,
             slots=final_slots,

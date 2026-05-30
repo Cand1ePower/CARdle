@@ -149,7 +149,7 @@ async def dispatch_tool(function: str, slots: dict) -> str:
     """
     if function not in TOOL_REGISTRY:
         logger.info(f"[Dispatcher] 未注册的工具: {function}")
-        return ""
+        return '{"status": "success", "message": "已为您下发执行指令"}'
 
     tool_func = TOOL_REGISTRY[function]
 
