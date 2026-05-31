@@ -21,11 +21,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.llm_client import call_llm_async
 from prompts import NLG_PROMPT
 from utils import logger
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        return lambda f: f
 
 MODEL_ENDPOINT = os.getenv("MODEL_ENDPOINT", "doubao-pro-4k")
 TIMEOUT = 10.0
 
 
+@observe(as_type="generation", name="NLG_Step")
 async def request_nlg_async(query: str, tool_response: str) -> str:
     """
     将工具返回数据润色为车载语音播报文本。

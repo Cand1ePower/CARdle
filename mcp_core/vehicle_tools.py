@@ -29,25 +29,45 @@ async def set_ac_temperature(temperature: str = "", adjust: str = "") -> dict:
         adjust: 调节方向（"up" 或 "down"）
     """
     current = _vehicle_state["ac_temperature"]
+    temp_val = None
+
+    if temperature:
+        nums = "".join(c for c in str(temperature) if c.isdigit())
+        if nums:
+            temp_val = int(nums)
 
     if adjust == "up":
-        _vehicle_state["ac_temperature"] = min(current + 2, 32)
-        _vehicle_state["ac_on"] = True
-        msg = f"已为您将空调温度从{current}度调高到{_vehicle_state['ac_temperature']}度"
-    elif adjust == "down":
-        _vehicle_state["ac_temperature"] = max(current - 2, 16)
-        _vehicle_state["ac_on"] = True
-        msg = f"已为您将空调温度从{current}度调低到{_vehicle_state['ac_temperature']}度"
-    elif temperature:
-        # 提取数字
-        temp_val = "".join(c for c in str(temperature) if c.isdigit())
-        if temp_val:
-            temp_int = max(16, min(32, int(temp_val)))
-            _vehicle_state["ac_temperature"] = temp_int
-            _vehicle_state["ac_on"] = True
-            msg = f"已为您将空调温度设置为{temp_int}度"
+        if temp_val is not None:
+            if temp_val < 10:  # 认为是 delta
+                target = current + temp_val
+            else: # 认为是明确的目标温度
+                target = temp_val
         else:
-            msg = f"无法识别温度值 '{temperature}'，当前温度保持{current}度"
+            target = current + 2
+        
+        _vehicle_state["ac_temperature"] = min(target, 32)
+        _vehicle_state["ac_on"] = True
+        msg = f"已为您将空调温度调高到{_vehicle_state['ac_temperature']}度"
+        
+    elif adjust == "down":
+        if temp_val is not None:
+            if temp_val < 10:
+                target = current - temp_val
+            else:
+                target = temp_val
+        else:
+            target = current - 2
+            
+        _vehicle_state["ac_temperature"] = max(target, 16)
+        _vehicle_state["ac_on"] = True
+        msg = f"已为您将空调温度调低到{_vehicle_state['ac_temperature']}度"
+        
+    elif temp_val is not None:
+        target = max(16, min(32, temp_val))
+        _vehicle_state["ac_temperature"] = target
+        _vehicle_state["ac_on"] = True
+        msg = f"已为您将空调温度设置为{target}度"
+        
     else:
         # 仅打开空调
         _vehicle_state["ac_on"] = True

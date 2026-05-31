@@ -10,6 +10,12 @@ import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import logger
 
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        return lambda f: f
+
 from mcp_core.amap_tools import maps_weather, maps_text_search, maps_geo, maps_direction_driving
 from mcp_core.vehicle_tools import set_ac_temperature, open_window, close_window, set_volume, get_vehicle_status
 
@@ -42,7 +48,11 @@ TOOL_REGISTRY = {
     "Open_Window":            open_window,
     "Close_Window":           close_window,
     "Set_Air_Condition_Temperature": set_ac_temperature,
+    "Inc_Air_Condition_Temperature": set_ac_temperature,
+    "Dec_Air_Condition_Temperature": set_ac_temperature,
     "Set_Sound_Volume":       set_volume,
+    "Inc_Sound_Volume":       set_volume,
+    "Dec_Sound_Volume":       set_volume,
     "Check_Car_Condition":    get_vehicle_status,
     "Vehicle_Status_Query":   get_vehicle_status,
 
@@ -96,7 +106,14 @@ SLOT_MAPPINGS = {
     "Navigation_Location_Query": {"POI": "destination", "City": "city"},
 
     "set_ac_temperature": {"temperature": "temperature", "adjust": "adjust"},
+    "Set_Air_Condition_Temperature": {"Number": "temperature"},
+    "Inc_Air_Condition_Temperature": {"Number": "temperature"},
+    "Dec_Air_Condition_Temperature": {"Number": "temperature"},
+    
     "set_volume": {"level": "level"},
+    "Set_Sound_Volume": {"Level": "level", "Number": "level"},
+    "Inc_Sound_Volume": {"Level": "level", "Number": "level"},
+    "Dec_Sound_Volume": {"Level": "level", "Number": "level"},
     
     # 各种 POI 槽位映射
     "Dining_Places": {"POI": "keywords", "City": "city"},
@@ -136,6 +153,7 @@ SLOT_MAPPINGS = {
 }
 
 
+@observe(as_type="span", name="Tool_Execution")
 async def dispatch_tool(function: str, slots: dict) -> str:
     """
     根据 NLU 解析出的 function 名称和 slots 参数，路由到对应的工具函数执行。
@@ -163,6 +181,17 @@ async def dispatch_tool(function: str, slots: dict) -> str:
     # 特殊处理：navigate_to 需要默认起点
     if function == "navigate_to" and "origin" not in kwargs:
         kwargs["origin"] = "当前位置"
+        
+    # 特殊处理：音量和空调的增减意图
+    if function.startswith("Inc_"):
+        kwargs["adjust"] = "up"
+        # 兼容 set_volume
+        if "Sound_Volume" in function and not kwargs.get("level"):
+            kwargs["level"] = "up"
+    elif function.startswith("Dec_"):
+        kwargs["adjust"] = "down"
+        if "Sound_Volume" in function and not kwargs.get("level"):
+            kwargs["level"] = "down"
 
     logger.info(f"[Dispatcher] 调用工具 {function}({kwargs})")
 

@@ -68,13 +68,42 @@ function App() {
             
             <div className="flex-center" style={{ flex: 1, position: 'relative' }}>
                {/* Minimalist Car Top-Down View */}
-               <div style={{ width: '160px', height: '340px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', borderRadius: '40px', position: 'relative', display: 'flex', justifyContent: 'center' }}>
+               <div style={{ width: '180px', height: '380px', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--glass-border)', borderRadius: '60px', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.5)' }}>
+                  
+                  {/* Frunk (Front Trunk) */}
+                  <motion.div 
+                    animate={{ y: vehicleState.frunk_open ? -20 : 0, opacity: vehicleState.frunk_open ? 0.8 : 0.2 }}
+                    style={{ position: 'absolute', top: '10px', width: '120px', height: '50px', background: 'rgba(255,255,255,0.1)', borderRadius: '20px 20px 5px 5px', border: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                  >
+                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{vehicleState.frunk_open ? 'FRUNK OPEN' : ''}</span>
+                  </motion.div>
+
                   {/* Windows Visualization */}
-                  <WindowIndicator position="top: 80px; left: -5px;" open={vehicleState.window_fl > 0} />
-                  <WindowIndicator position="top: 80px; right: -5px;" open={vehicleState.window_fr > 0} />
-                  <WindowIndicator position="bottom: 100px; left: -5px;" open={vehicleState.window_rl > 0} />
-                  <WindowIndicator position="bottom: 100px; right: -5px;" open={vehicleState.window_rr > 0} />
-                  <div style={{ position: 'absolute', top: '20px', color: 'var(--text-muted)' }}>Front</div>
+                  <WindowIndicator position="top: 120px; left: -6px;" open={vehicleState.window_fl > 0} />
+                  <WindowIndicator position="top: 120px; right: -6px;" open={vehicleState.window_fr > 0} />
+                  <WindowIndicator position="bottom: 120px; left: -6px;" open={vehicleState.window_rl > 0} />
+                  <WindowIndicator position="bottom: 120px; right: -6px;" open={vehicleState.window_rr > 0} />
+                  
+                  {/* Seats Area */}
+                  <div style={{ position: 'absolute', top: '130px', width: '100%', display: 'flex', justifyContent: 'center', gap: '20px' }}>
+                     {/* Front Left Seat */}
+                     <div className={`seat-heat-${vehicleState.seat_heat_fl} seat-vent-${vehicleState.seat_vent_fl}`} style={{ width: '45px', height: '60px', borderRadius: '10px 10px 5px 5px', border: '1px solid var(--glass-border)', transition: 'all 0.5s', position: 'relative' }}>
+                        <div style={{ position: 'absolute', top: '-15px', left: '10px', width: '25px', height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--glass-border)' }} />
+                     </div>
+                     {/* Front Right Seat */}
+                     <div className={`seat-heat-${vehicleState.seat_heat_fr} seat-vent-${vehicleState.seat_vent_fr}`} style={{ width: '45px', height: '60px', borderRadius: '10px 10px 5px 5px', border: '1px solid var(--glass-border)', transition: 'all 0.5s', position: 'relative' }}>
+                        <div style={{ position: 'absolute', top: '-15px', left: '10px', width: '25px', height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--glass-border)' }} />
+                     </div>
+                  </div>
+
+                  {/* Trunk (Rear Trunk) */}
+                  <motion.div 
+                    animate={{ y: vehicleState.trunk_open ? 20 : 0, opacity: vehicleState.trunk_open ? 0.8 : 0.2 }}
+                    style={{ position: 'absolute', bottom: '10px', width: '120px', height: '60px', background: 'rgba(255,255,255,0.1)', borderRadius: '5px 5px 20px 20px', border: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                  >
+                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{vehicleState.trunk_open ? 'TRUNK OPEN' : ''}</span>
+                  </motion.div>
+
                </div>
             </div>
 

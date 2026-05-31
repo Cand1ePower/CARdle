@@ -14,10 +14,19 @@ import httpx
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import logger
 
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        return lambda f: f
+
 NLU_URL = os.getenv("CHATNLU_INFER_URL", "http://127.0.0.1:8015/chatnlu/v1")
 
 
-async def request_nlu_async(query: str, trace_id: str = "", enable_dm: bool = True) -> dict:
+from typing import List, Dict, Any
+
+@observe(as_type="span", name="Local_NLU_Infer")
+async def request_nlu_async(query: str, trace_id: str = "", enable_dm: bool = True, history: List[Dict[str, Any]] = None) -> dict:
     """
     向 chatnlu_infer 推理服务（默认端口 8015）发起 NLU 解析请求。
     返回结构化的意图识别与槽位提取结果。
@@ -25,7 +34,8 @@ async def request_nlu_async(query: str, trace_id: str = "", enable_dm: bool = Tr
     payload = {
         "query": query,
         "trace_id": trace_id,
-        "enable_dm": enable_dm
+        "enable_dm": enable_dm,
+        "history": history or []
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:

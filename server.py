@@ -182,10 +182,10 @@ async def request_arbitration_async(query: str, history: list, candidates: list)
         headers = {"X-Trace-Id": trace_id}
         payload = {
             "query": query,
-            "history": history,
+            "history": [turn.model_dump() if hasattr(turn, 'model_dump') else (turn.dict() if hasattr(turn, 'dict') else turn) for turn in history],
             "candidates": candidates
         }
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(INTENT_URL, json=payload, headers=headers)
             result = resp.json()
             logger.info(f"[Arbitration] picked intent='{result.get('intent', 'Unknown')}'")
@@ -277,6 +277,7 @@ async def request_nlu(sid, data_str):
         with propagate_attributes(user_id=device_id, session_id=sid):
             
             client = get_client()
+            begin = time.time()
             if client and client.get_current_trace_id():
                 # 必须使用 OTEL 兼容的 32 字符 16 进制 Trace ID
                 langfuse_trace_id = client.get_current_trace_id()
@@ -285,7 +286,6 @@ async def request_nlu(sid, data_str):
                 
             # 设置 trace_id，后续所有 logger 和微服务调用自动携带
             logger.session.trace_id = langfuse_trace_id
-            begin = time.time()
             
             logger.info(f"========== [REQUEST_NLU START] query='{query[:20]}' device='{device_id}' trace='{langfuse_trace_id}' ==========")
 
@@ -311,7 +311,8 @@ async def request_nlu(sid, data_str):
 
         # ── 终极端云协同：本地大模型串行分发 ──
         # 1. 优先调用本地微调模型 (Gemma 1B)
-        nlu_response = await request_nlu_async(query, langfuse_trace_id)
+        history_dicts = [turn.model_dump() if hasattr(turn, 'model_dump') else (turn.dict() if hasattr(turn, 'dict') else turn) for turn in history_turns] if history_turns else []
+        nlu_response = await request_nlu_async(query, langfuse_trace_id, history=history_dicts)
         
         domain = nlu_response.get("domain", "A")
         is_safe = nlu_response.get("is_safe", True)
@@ -486,7 +487,7 @@ async def request_nlu(sid, data_str):
                 try:
                     client.update_current_span(
                         output={"nlg_output": final_nlg, "func": final_function},
-                        metadata={"branch": branch}
+                        metadata={"branch": response.get("branch", "unknown")}
                     )
                     client.flush()  # 确保网关层的 trace 能即时上报
                 except Exception as e:

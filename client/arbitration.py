@@ -17,7 +17,7 @@ from utils.logger import session
 app = FastAPI(title="CARdle 云端意图仲裁服务", version="2.0.0")
 
 MODEL_ENDPOINT = os.getenv("MODEL_ENDPOINT", "doubao-pro-4k")
-TIMEOUT = 5.0  # 增加超时时间，因为要输出完整的 JSON
+TIMEOUT = 10.0  # 增加超时时间，因为要输出完整的 JSON
 
 
 class CandidateIntent(BaseModel):
@@ -26,7 +26,7 @@ class CandidateIntent(BaseModel):
 
 class ArbitrationRequest(BaseModel):
     query: str
-    history: List[Dict[str, str]] = []
+    history: List[Dict[str, Any]] = []
     candidates: List[CandidateIntent]
 
 
@@ -52,7 +52,18 @@ async def arbitrate(req: ArbitrationRequest, request: Request):
     
     # 构造 Prompt 的上下文
     history_text = json.dumps(req.history, ensure_ascii=False)
-    candidates_text = json.dumps([c.dict() for c in req.candidates], ensure_ascii=False)
+    if req.candidates:
+        candidates_text = json.dumps([c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in req.candidates], ensure_ascii=False)
+    else:
+        # 如果 NLU 没有给出候选（如 Unknown），给大模型一份所有意图的名称列表供其参考
+        try:
+            slot_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dataset", "slot_intent.json")
+            with open(slot_file, "r", encoding="utf-8") as f:
+                all_intents = list(json.load(f).keys())
+            candidates_text = f"NLU未提供候选，请从以下标准函数名中推理(不要随意编造):\n{', '.join(all_intents)}"
+        except:
+            candidates_text = "[]"
+            
     user_content = f"【对话历史】：\n{history_text}\n\n【最新指令】：\n{req.query}\n\n【候选意图集】：\n{candidates_text}"
     
     messages = [

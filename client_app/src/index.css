@@ -108,3 +108,24 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
 }
+
+/* Vehicle Animations */
+@keyframes heat-pulse {
+  0% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4) inset, 0 0 15px rgba(239, 68, 68, 0.2); }
+  50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.8) inset, 0 0 30px rgba(239, 68, 68, 0.5); }
+  100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4) inset, 0 0 15px rgba(239, 68, 68, 0.2); }
+}
+
+@keyframes vent-wave {
+  0% { box-shadow: 0 0 10px rgba(6, 182, 212, 0.4) inset; background-position: 0% 0%; }
+  50% { box-shadow: 0 0 25px rgba(6, 182, 212, 0.8) inset; background-position: 100% 100%; }
+  100% { box-shadow: 0 0 10px rgba(6, 182, 212, 0.4) inset; background-position: 0% 0%; }
+}
+
+.seat-heat-1 { animation: heat-pulse 2s infinite ease-in-out; background: rgba(239, 68, 68, 0.1); }
+.seat-heat-2 { animation: heat-pulse 1.5s infinite ease-in-out; background: rgba(239, 68, 68, 0.25); }
+.seat-heat-3 { animation: heat-pulse 1s infinite ease-in-out; background: rgba(239, 68, 68, 0.4); }
+
+.seat-vent-1 { animation: vent-wave 2s infinite linear; background: rgba(6, 182, 212, 0.1); }
+.seat-vent-2 { animation: vent-wave 1.5s infinite linear; background: rgba(6, 182, 212, 0.25); }
+.seat-vent-3 { animation: vent-wave 1s infinite linear; background: rgba(6, 182, 212, 0.4); }

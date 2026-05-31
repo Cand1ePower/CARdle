@@ -24,6 +24,8 @@ with open(SLOT_INTENT_FILE, "r", encoding="utf-8") as f:
 
 class NLURequest(BaseModel):
     query: str
+    trace_id: str = "unknown"
+    history: list = []
 
 async def get_top5_intents(query: str):
     """向本地意图小模型 (Port 8016) 发起召回请求"""
@@ -41,7 +43,7 @@ async def get_top5_intents(query: str):
 
 @app.post("/chatnlu/v1")
 async def chatnlu_infer(req: NLURequest, request: Request):
-    session.trace_id = request.headers.get("X-Trace-Id", "unknown")
+    session.trace_id = req.trace_id if req.trace_id != "unknown" else request.headers.get("X-Trace-Id", "unknown")
     print(f"[NLU Service] 收到 NLU 解析请求: '{req.query}' | TraceID: {session.trace_id}")
     query = req.query.strip()
     
@@ -94,9 +96,13 @@ async def chatnlu_infer(req: NLURequest, request: Request):
   }}
 }}"""
     
+    history_text = ""
+    if req.history:
+        history_text = "【近期对话历史】：\n" + json.dumps(req.history[-2:], ensure_ascii=False) + "\n\n"
+        
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"用户指令: '{query}'"}
+        {"role": "user", "content": f"{history_text}用户指令: '{query}'"}
     ]
     
     try:
