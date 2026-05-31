@@ -43,6 +43,8 @@ asyncio-mqtt==0.16.2 ; False  # 仅在需要 MQTT 时启用
 # datasets==4.8.5
 # Observability
 langfuse>=4.0.0
+langgraph>=0.2.14
+langchain-openai>=0.1.22
 # evaluate==0.4.6
 
 # ── 工具库 ──
