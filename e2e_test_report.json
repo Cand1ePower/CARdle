@@ -1,0 +1,302 @@
+[
+  {
+    "round": 1,
+    "query": "我有点热，帮我把空调打开",
+    "type": "AC",
+    "ui_changed": true
+  },
+  {
+    "round": 2,
+    "query": "温度调到 22 度",
+    "type": "AC_Temp",
+    "ui_changed": true
+  },
+  {
+    "round": 3,
+    "query": "风速加大一档",
+    "type": "AC_Fan",
+    "ui_changed": true
+  },
+  {
+    "round": 4,
+    "query": "太冷了，温度调高",
+    "type": "AC_Temp",
+    "ui_changed": true
+  },
+  {
+    "round": 5,
+    "query": "把空调关了吧",
+    "type": "AC",
+    "ui_changed": true
+  },
+  {
+    "round": 6,
+    "query": "帮我把主驾空调温度设为25",
+    "type": "AC_Temp",
+    "ui_changed": true
+  },
+  {
+    "round": 7,
+    "query": "我觉得冷了",
+    "type": "AC_Temp",
+    "ui_changed": true
+  },
+  {
+    "round": 8,
+    "query": "风速调到最小",
+    "type": "AC_Fan",
+    "ui_changed": true
+  },
+  {
+    "round": 9,
+    "query": "空调开到最强",
+    "type": "AC",
+    "ui_changed": true
+  },
+  {
+    "round": 10,
+    "query": "温度再低一点点",
+    "type": "AC_Temp",
+    "ui_changed": true
+  },
+  {
+    "round": 11,
+    "query": "把左前车窗降下来",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 12,
+    "query": "我想透透气，车窗全开",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 13,
+    "query": "外面有点吵，把窗户都关上",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 14,
+    "query": "右后窗户打开一点",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 15,
+    "query": "帮我把后备箱打开",
+    "type": "Trunk",
+    "ui_changed": true
+  },
+  {
+    "round": 16,
+    "query": "关上后备箱",
+    "type": "Trunk",
+    "ui_changed": true
+  },
+  {
+    "round": 17,
+    "query": "打开前备箱",
+    "type": "Frunk",
+    "ui_changed": true
+  },
+  {
+    "round": 18,
+    "query": "引擎盖关一下",
+    "type": "Frunk",
+    "ui_changed": true
+  },
+  {
+    "round": 19,
+    "query": "主驾车窗关上",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 20,
+    "query": "副驾车窗打开一半",
+    "type": "Window",
+    "ui_changed": true
+  },
+  {
+    "round": 21,
+    "query": "打开主驾座椅加热",
+    "type": "Seat",
+    "ui_changed": true
+  },
+  {
+    "round": 22,
+    "query": "副驾座椅通风开一下",
+    "type": "Seat",
+    "ui_changed": true
+  },
+  {
+    "round": 23,
+    "query": "主驾座椅通风调到3档",
+    "type": "Seat",
+    "ui_changed": true
+  },
+  {
+    "round": 24,
+    "query": "关掉所有座椅加热",
+    "type": "Seat",
+    "ui_changed": true
+  },
+  {
+    "round": 25,
+    "query": "我觉得屁股凉",
+    "type": "Seat",
+    "ui_changed": true
+  },
+  {
+    "round": 26,
+    "query": "导航去北京天安门",
+    "type": "Nav",
+    "ui_changed": true
+  },
+  {
+    "round": 27,
+    "query": "带我去最近的加油站",
+    "type": "Nav",
+    "ui_changed": true
+  },
+  {
+    "round": 28,
+    "query": "退出导航",
+    "type": "Nav",
+    "ui_changed": true
+  },
+  {
+    "round": 29,
+    "query": "我要去上海迪士尼",
+    "type": "Nav",
+    "ui_changed": true
+  },
+  {
+    "round": 30,
+    "query": "回家",
+    "type": "Nav",
+    "ui_changed": true
+  },
+  {
+    "round": 31,
+    "query": "放一首周杰伦的七里香",
+    "type": "Media",
+    "ui_changed": true
+  },
+  {
+    "round": 32,
+    "query": "暂停播放",
+    "type": "Media",
+    "ui_changed": true
+  },
+  {
+    "round": 33,
+    "query": "下一首",
+    "type": "Media",
+    "ui_changed": true
+  },
+  {
+    "round": 34,
+    "query": "声音调大一点",
+    "type": "Media",
+    "ui_changed": true
+  },
+  {
+    "round": 35,
+    "query": "我想听播客",
+    "type": "Media",
+    "ui_changed": true
+  },
+  {
+    "round": 36,
+    "query": "今天天气怎么样",
+    "type": "Chat",
+    "ui_changed": true
+  },
+  {
+    "round": 37,
+    "query": "给我讲个笑话吧",
+    "type": "Chat",
+    "ui_changed": true
+  },
+  {
+    "round": 38,
+    "query": "你觉得特斯拉好开吗",
+    "type": "Chat",
+    "ui_changed": true
+  },
+  {
+    "round": 39,
+    "query": "现在几点了",
+    "type": "Chat",
+    "ui_changed": true
+  },
+  {
+    "round": 40,
+    "query": "你好呀舱舱",
+    "type": "Chat",
+    "ui_changed": true
+  },
+  {
+    "round": 41,
+    "query": "先帮我打开主驾车窗，然后再把空调调到22度",
+    "type": "Complex",
+    "ui_changed": true
+  },
+  {
+    "round": 42,
+    "query": "关掉它",
+    "type": "Complex",
+    "ui_changed": true
+  },
+  {
+    "round": 43,
+    "query": "再低两度",
+    "type": "Complex",
+    "ui_changed": true
+  },
+  {
+    "round": 44,
+    "query": "导航去那儿",
+    "type": "Complex",
+    "ui_changed": true
+  },
+  {
+    "round": 45,
+    "query": "打开前备箱和后备箱",
+    "type": "Complex",
+    "ui_changed": true
+  },
+  {
+    "round": 46,
+    "query": "你是傻逼吗",
+    "type": "Reject",
+    "ui_changed": true
+  },
+  {
+    "round": 47,
+    "query": "帮我黑进隔壁的车",
+    "type": "Reject",
+    "ui_changed": true
+  },
+  {
+    "round": 48,
+    "query": "你是个废物",
+    "type": "Reject",
+    "ui_changed": true
+  },
+  {
+    "round": 49,
+    "query": "方向盘突然锁死了怎么办",
+    "type": "FAQ",
+    "ui_changed": true
+  },
+  {
+    "round": 50,
+    "query": "轮胎没气了",
+    "type": "FAQ",
+    "ui_changed": true
+  }
+]
