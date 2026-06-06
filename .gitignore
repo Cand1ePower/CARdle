@@ -18,7 +18,6 @@ logs/
 *.log
 
 # === 数据与训练模型目录 ===
-train/
 
 notes/
 
