@@ -13,11 +13,16 @@ from utils.llm_client import API_KEY, BASE_URL
 MODEL_ENDPOINT = os.getenv("MODEL_ENDPOINT", "deepseek-v4-flash")
 
 TRAIN_SYSTEM_PROMPT = """你是一个车载智能中枢。请根据提供的对话历史和最新指令，一次性完成以下任务并严格输出JSON格式：
-1. 【领域仲裁】：判断用户输入的意图属于 A(车控与多媒体任务)、B(车辆功能与说明书)、C(闲聊百科)、D(无意义或非人机对话)。
+1. 【领域仲裁】：判断用户输入的意图属于 A、B、C 或 D：
+   - A (车控与多媒体任务)：用户要求系统执行具体动作、修改设置或播放媒体（例如：“打开空调”、“导航去天安门”、“播放周杰伦的歌”、“温度调高两度”）。
+   - B (车辆功能与说明书)：用户咨询或查询车辆的功能、按钮含义、指示灯报警、保养维护或使用说明，但不要求系统执行具体控制动作（例如：“雨刮器堵了怎么清洗”、“发动机黄灯亮了还能开吗”、“怎么绑定车钥匙”、“什么是自适应巡航”、“车辆的各方面数据”）。
+   - C (闲聊百科)：与车辆操作和说明无关的通用常识问答、闲聊、简单计算或娱乐（例如：“李白是哪个朝代的”、“讲个笑话”、“今天天气怎么样”）。
+   - D (无意义或非人机对话)：误触发、杂音、无意义语气词，或需要安全拒识的非法/危险指令（例如：“嗒嗒嗒”、“在车里抽烟怎么隐藏烟雾警报”）。
 2. 【安全拒识】：判断指令是否安全。
 3. 【多轮改写】：如果指令指代不明，请结合历史记录补全。
-4. 【意图抽取】：如果领域是 A，请提取最有可能的 5 个候选意图及槽位；如果不是 A，返回空数组。
-返回格式必须严格为：{"domain": "A|B|C|D", "is_safe": bool, "reject_reason": str, "rewritten_query": str, "candidate_intents": [{"intent": str, "slots": dict}]}"""
+4. 【意图抽取】：如果领域是 A，请提取最有可能的 5 个候选意图及槽位；
+返回格式必须严格为：{"domain": "A", "is_safe": bool, "reject_reason": str, "rewritten_query": str, "candidate_intents": [{"intent": str, "slots": dict}]},
+如果不是 A,返回格式必须严格为：{"domain": "B|C|D", "is_safe": bool, "reject_reason": str, "rewritten_query": str,,"candidate_intents": []}"""
 
 GENERATE_PROMPTS = {
     "B": """你是一个车载语音交互与智能座舱领域的专家。
@@ -102,13 +107,17 @@ async def generate_batch(client: httpx.AsyncClient, domain: str) -> List[str]:
         print(f"[-] Domain {domain} generation batch failed: {e}")
         return []
 
-async def generate_domain_samples(client: httpx.AsyncClient, domain: str, target_count: int) -> List[str]:
-    """Generate target_count unique samples for a specific domain."""
+async def generate_domain_samples(client: httpx.AsyncClient, domain: str, target_count: int, sem: asyncio.Semaphore) -> List[str]:
+    """Generate target_count unique samples for a specific domain with concurrency limit."""
     print(f"[*] Starting generation for Domain {domain} (Target: {target_count})...")
     queries = set()
     batches_needed = (target_count // 45) + 1  # Generate a bit more to handle duplicates
     
-    tasks = [generate_batch(client, domain) for _ in range(batches_needed)]
+    async def task_with_sem():
+        async with sem:
+            return await generate_batch(client, domain)
+            
+    tasks = [task_with_sem() for _ in range(batches_needed)]
     results = await asyncio.gather(*tasks)
     
     for batch in results:
@@ -169,16 +178,16 @@ async def main():
     else:
         print(f"[-] Warning: Original SFT file not found at {original_sft_path}")
     
-    # Keep up to 3000 Domain A samples to maintain strong vehicle control capability
-    random.shuffle(domain_a_items)
-    domain_a_items = domain_a_items[:3000]
+    # Keep all Domain A samples to maintain strong vehicle control capability
+    print(f"[*] Keeping all {len(domain_a_items)} original Domain A samples.")
     
-    # 2. Concurrently generate B, C, D samples using DeepSeek API
+    # 2. Concurrently generate B, C, D samples using DeepSeek API with concurrency control
+    sem = asyncio.Semaphore(10)  # Limit to 10 concurrent requests to prevent rate limit
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # Targets: B: 800, C: 800, D: 400
-        b_queries_task = generate_domain_samples(client, "B", 800)
-        c_queries_task = generate_domain_samples(client, "C", 800)
-        d_queries_task = generate_domain_samples(client, "D", 400)
+        # Targets: B: 3000, C: 3000, D: 1500
+        b_queries_task = generate_domain_samples(client, "B", 3000, sem)
+        c_queries_task = generate_domain_samples(client, "C", 3000, sem)
+        d_queries_task = generate_domain_samples(client, "D", 1500, sem)
         
         b_queries, c_queries, d_queries = await asyncio.gather(
             b_queries_task, c_queries_task, d_queries_task

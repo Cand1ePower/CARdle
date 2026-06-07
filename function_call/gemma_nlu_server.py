@@ -73,12 +73,38 @@ async def gemma_infer(req: NLURequest, request: Request):
     if req.history:
         history_text = "【近期对话历史】：\n" + json.dumps(req.history[-2:], ensure_ascii=False) + "\n\n"
         
-    TRAIN_SYSTEM_PROMPT = """你是一个车载智能中枢。请根据提供的对话历史和最新指令，一次性完成以下任务并严格输出JSON格式：
-1. 【领域仲裁】：判断用户输入的意图属于 A(车控与多媒体任务)、B(车辆功能与说明书)、C(闲聊百科)、D(无意义或非人机对话)。
+    TRAIN_SYSTEM_PROMPT = """你是一个车载智能中枢。请根据提供的对话历史和最新指令，一次性完成以下任务并严格输出 JSON 格式。
+
+【任务说明】
+1. 【领域仲裁】：判断用户输入的意图属于 A、B、C 或 D：
+   - A (车控与多媒体任务)：用户要求系统执行具体动作、修改设置、播放媒体、拨打电话或进行导航。其核心特征是“指示车机立即进行操作”（例如：“打开空调”、“导航去天安门”、“把音量调高一点”、“怎么把车窗打开”）。
+   - B (车辆功能与说明书)：用户咨询或查询车辆的功能、按钮含义、指示灯报警、保养维护或使用说明。其核心特征是“获取关于车的知识或信息”，且不包含执行控制动作（例如：“雨刮器堵了怎么清洗”、“发动机黄灯亮了还能开吗”、“怎么绑定车钥匙”、“什么是自适应巡航”）。
+   - C (闲聊百科)：与车辆操作和说明无关的通用常识问答、闲聊、简单计算或娱乐（例如：“李白是哪个朝代的”、“讲个笑话”、“今天天气怎么样”）。
+   - D (无意义或非人机对话)：误触发、杂音、无意义语气词，或需要安全拒识的非法/危险指令（例如：“嗒嗒嗒”、“在车里抽烟怎么隐藏烟雾警报”）。
 2. 【安全拒识】：判断指令是否安全。
 3. 【多轮改写】：如果指令指代不明，请结合历史记录补全。
 4. 【意图抽取】：如果领域是 A，请提取最有可能的 5 个候选意图及槽位；如果不是 A，返回空数组。
-返回格式必须严格为：{"domain": "A|B|C|D", "is_safe": bool, "reject_reason": str, "rewritten_query": str, "candidate_intents": [{"intent": str, "slots": dict}]}"""
+
+【约束规则】
+- 当领域为 B、C、D 时，`candidate_intents` 必须严格为空数组 `[]`。
+- 输出必须是合法的单行 JSON，不要包含任何 markdown 标记（如 ```json）。
+
+【Few-Shot 示例】
+示例 1（B类 - 车辆说明书咨询）：
+输入：
+对话历史:
+无
+最新指令: 胎压报警灯亮了该怎么复位？
+输出：
+{"domain": "B", "is_safe": true, "reject_reason": "", "rewritten_query": "胎压报警灯亮了该怎么复位？", "candidate_intents": []}
+
+示例 2（A类 - 车控/多媒体执行指令）：
+输入：
+对话历史:
+无
+最新指令: 这首歌太难听了，切歌
+输出：
+{"domain": "A", "is_safe": true, "reject_reason": "", "rewritten_query": "这首歌太难听了，切歌", "candidate_intents": [{"intent": "Media_Next", "slots": {}}, {"intent": "Media_Pause", "slots": {}}, {"intent": "Close_Player", "slots": {}}, {"intent": "Play_BT_Music", "slots": {}}, {"intent": "Open_Player", "slots": {}}]}"""
 
     messages = [
         {"role": "system", "content": TRAIN_SYSTEM_PROMPT},
