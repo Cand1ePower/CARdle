@@ -20,7 +20,7 @@ except ImportError:
     def observe(*args, **kwargs):
         return lambda f: f
 
-NLU_URL = os.getenv("CHATNLU_INFER_URL", "http://127.0.0.1:8015/chatnlu/v1")
+NLU_URL = os.getenv("CHATNLU_INFER_URL", "http://127.0.0.1:8011/chatnlu/v1")
 
 
 from typing import List, Dict, Any

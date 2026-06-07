@@ -35,17 +35,18 @@ anyio==4.13.0
 asyncio-mqtt==0.16.2 ; False  # 仅在需要 MQTT 时启用
 
 # ── AI 推理 (本地小模型, 仅训练/推理服务需要) ──
-# torch==2.12.0          # 取消注释以启用本地模型推理
-# transformers==5.9.0
-# tokenizers==0.22.2
-# accelerate==1.13.0
-# safetensors==0.7.0
-# datasets==4.8.5
+torch==2.12.0          # 取消注释以启用本地模型推理
+transformers==5.9.0
+tokenizers==0.22.2
+accelerate==1.13.0
+safetensors==0.7.0
+datasets==4.8.5
 # Observability
 langfuse>=4.0.0
 langgraph>=0.2.14
 langchain-openai>=0.1.22
 # evaluate==0.4.6
+lm-format-enforcer==0.10.9
 
 # ── 工具库 ──
 python-dateutil==2.9.0.post0

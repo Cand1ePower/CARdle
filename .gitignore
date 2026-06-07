@@ -13,12 +13,17 @@ db/*.db-wal
 redis/
 redis.zip
 
-# === 运行时日志 ===
+# === 运行时日志与报告 ===
 logs/
 *.log
-
+e2e_test_report.json
 # === 数据与训练模型目录 ===
-
+dataset/Interaction_Agent_Dataset_V0.1/
+dataset/*.jsonl
+train/eval_*/
+train/train_*/
+train/pretrained/
+train/gemma-*/
 notes/
 
 # === 故障排除与本地调试记录 ===
