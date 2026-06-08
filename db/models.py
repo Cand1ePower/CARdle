@@ -64,6 +64,7 @@ class ConversationTurn(BaseModel):
     role: str                               # "user" 或 "assistant"
     content: str                            # 对话内容
     ts: int                                 # Unix 时间戳
+    metadata: dict = Field(default_factory=dict)  # 结构化上下文，如 intent/slots/rewritten_query
 
     def to_json(self) -> str:
         return self.model_dump_json()

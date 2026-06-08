@@ -33,11 +33,8 @@ try:
     time.sleep(1) # 给 Redis 留点启动时间
 
     # 2. 启动周边微服务
-    start_process("Rewrite (8006)", r".venv\Scripts\python.exe client\rewrite.py")
-    start_process("Reject (8007)", r".venv\Scripts\python.exe train\reject_infer.py")
     start_process("Arbitration (8008)", r".venv\Scripts\python.exe client\arbitration.py")
-    start_process("Correlation (8009)", r".venv\Scripts\python.exe client\correlation.py")
-    start_process("ChatNLU (8015)", r".venv\Scripts\python.exe function_call\chatnlu_infer.py")
+    start_process("Gemma NLU (8011)", r".venv\Scripts\python.exe function_call\gemma_nlu_server.py")
     
     print("\n\033[93m[INFO] 等待微服务就绪 (3秒)...\033[0m\n")
     time.sleep(3)

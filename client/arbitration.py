@@ -53,7 +53,9 @@ async def arbitrate(req: ArbitrationRequest, request: Request):
     # 构造 Prompt 的上下文
     history_text = json.dumps(req.history, ensure_ascii=False)
     if req.candidates:
-        candidates_text = json.dumps([c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in req.candidates], ensure_ascii=False)
+        candidate_dicts = [c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in req.candidates]
+        candidates_text = json.dumps(candidate_dicts, ensure_ascii=False)
+        valid_intents = [c.get("intent", "Unknown") for c in candidate_dicts] + ["Unknown"]
     else:
         # 如果 NLU 没有给出候选（如 Unknown），给大模型一份所有意图的名称列表供其参考
         try:
@@ -61,8 +63,10 @@ async def arbitrate(req: ArbitrationRequest, request: Request):
             with open(slot_file, "r", encoding="utf-8") as f:
                 all_intents = list(json.load(f).keys())
             candidates_text = f"NLU未提供候选，请从以下标准函数名中推理(不要随意编造):\n{', '.join(all_intents)}"
+            valid_intents = all_intents + ["Unknown"]
         except:
             candidates_text = "[]"
+            valid_intents = ["Unknown"]
             
     user_content = f"【对话历史】：\n{history_text}\n\n【最新指令】：\n{req.query}\n\n【候选意图集】：\n{candidates_text}"
     
@@ -106,9 +110,18 @@ async def arbitrate(req: ArbitrationRequest, request: Request):
                 
             result_json = json.loads(result_text)
             logger.info(f"[Arbitration] LLM chose intent: {result_json}")
+            intent = result_json.get("intent", "Unknown")
+            if intent not in valid_intents:
+                logger.warning(f"[Arbitration] 非法意图 '{intent}' 不在合法集合内，降级为首选候选")
+                fallback_intent = req.candidates[0].dict() if req.candidates else {"intent": "Unknown", "slots": {}}
+                return {
+                    "intent": fallback_intent.get("intent", "Unknown"),
+                    "slots": fallback_intent.get("slots", {}),
+                    "degraded": True
+                }
             
             return {
-                "intent": result_json.get("intent", "Unknown"), 
+                "intent": intent, 
                 "slots": result_json.get("slots", {}), 
                 "degraded": False
             }

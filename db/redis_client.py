@@ -97,7 +97,7 @@ class RedisClient:
 
     # ── 对话历史窗口 ────────────────────────
 
-    async def push_history(self, device_id: str, role: str, content: str) -> None:
+    async def push_history(self, device_id: str, role: str, content: str, metadata: Optional[dict] = None) -> None:
         """追加一条对话记录到设备的历史窗口，并刷新 TTL"""
         try:
             r = get_redis()
@@ -105,7 +105,8 @@ class RedisClient:
             turn = ConversationTurn(
                 role=role,
                 content=content,
-                ts=int(datetime.now().timestamp())
+                ts=int(datetime.now().timestamp()),
+                metadata=metadata or {},
             )
             await r.rpush(key, turn.to_json())
             # 只保留最近 MAX_HISTORY_TURNS * 2 条（user + assistant 各算一条）

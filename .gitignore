@@ -17,6 +17,7 @@ redis.zip
 logs/
 *.log
 e2e_test_report.json
+
 # === 数据与训练模型目录 ===
 dataset/Interaction_Agent_Dataset_V0.1/
 dataset/*.jsonl
@@ -24,6 +25,15 @@ train/eval_*/
 train/train_*/
 train/pretrained/
 train/gemma-*/
+train/Gemma-*/
+train/**/*.bin
+train/**/*.safetensors
+train/**/*.pt
+train/**/*.pth
+train/**/*.gguf
+train/**/*.onnx
+train/**/*.tflite
+train/**/*.task
 notes/
 
 # === 故障排除与本地调试记录 ===

@@ -204,6 +204,7 @@ async def request_nlu(sid, data_str):
         final_intent = final_state.get("intent", "")
         final_function = final_state.get("intent", "")
         final_slots = final_state.get("slots", {})
+        final_nlu_result = final_state.get("nlu_result", {})
 
         client = get_client()
         if client:
@@ -224,6 +225,7 @@ async def request_nlu(sid, data_str):
             intent=final_intent,
             function=final_function,
             slots=final_slots,
+            nlu_result=final_nlu_result,
             cost_ms=cost_total * 1000,
         ))
 

@@ -12,6 +12,7 @@ async def post_request_tasks(
     intent: str = "",
     function: str = "",
     slots: dict = None,
+    nlu_result: dict = None,
     cost_ms: float = 0.0,
 ) -> None:
     """
@@ -20,17 +21,34 @@ async def post_request_tasks(
     2. 将本次请求的完整信息写入 SQLite 审计日志
     """
     slots = slots or {}
+    nlu_result = nlu_result or {}
     now = datetime.now(timezone.utc).isoformat()
+    rewritten_query = nlu_result.get("rewritten_query", query)
+    domain = nlu_result.get("domain", "")
 
     # 1. 写入 Redis 对话历史（用户轮 + 助手轮各一条）
     if query:
         await redis_client.push_history(device_id, "user", query)
     if nlg_text:
-        await redis_client.push_history(device_id, "assistant", nlg_text)
+        await redis_client.push_history(
+            device_id,
+            "assistant",
+            nlg_text,
+            metadata={
+                "intent": intent,
+                "function": function,
+                "slots": slots,
+                "domain": domain,
+                "is_safe": nlu_result.get("is_safe", True),
+                "rewritten_query": rewritten_query,
+                "candidate_intents": nlu_result.get("candidate_intents", []),
+            },
+        )
         # 同步更新车辆状态寄存器中的 last_answer
         await redis_client.update_vehicle_state(
             device_id,
-            last_query=query[:100],
+            last_domain=domain,
+            last_query=rewritten_query[:100],
             last_answer=nlg_text[:200],
         )
 
