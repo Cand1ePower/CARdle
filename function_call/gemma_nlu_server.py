@@ -2,12 +2,13 @@ import os
 import sys
 import json
 import asyncio
+import time
 import torch
 import uvicorn
 from threading import Thread
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any, Literal
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from lmformatenforcer import CharacterLevelParserConfig, JsonSchemaParser
@@ -46,33 +47,58 @@ from enum import Enum
 IntentEnum = Enum('IntentEnum', {name: name for name in valid_intents})
 
 class CandidateIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     intent: IntentEnum
     slots: Dict[str, str] = Field(default_factory=dict)
 
 class NLUResponseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     domain: Literal["A", "B", "C", "D"]
     is_safe: bool
     reject_reason: str
     rewritten_query: str
     candidate_intents: List[CandidateIntent] = Field(default_factory=list, max_length=5)
 
+class NLURouteResponseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    domain: Literal["A", "B", "C", "D"]
+    is_safe: bool
+    reject_reason: str
+    rewritten_query: str
+
+class NLUIntentResponseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_intents: List[CandidateIntent] = Field(default_factory=list, max_length=5)
+
 DEFAULT_LMFE_ALPHABET = CharacterLevelParserConfig().alphabet
 CJK_ALPHABET = "".join(chr(codepoint) for codepoint in range(0x4E00, 0xA000))
 CJK_SYMBOLS = "，。？！：；、“”‘’（）《》【】℃°—～·"
-JSON_SCHEMA_PARSER = JsonSchemaParser(
-    NLUResponseModel.model_json_schema(),
-    CharacterLevelParserConfig(
-        alphabet=DEFAULT_LMFE_ALPHABET + "\n\r\t" + CJK_ALPHABET + CJK_SYMBOLS,
-        max_consecutive_whitespaces=4,
-        force_json_field_order=True,
-        max_json_array_length=5,
-    ),
-)
+
+def build_json_schema_parser(schema: dict) -> JsonSchemaParser:
+    return JsonSchemaParser(
+        schema,
+        CharacterLevelParserConfig(
+            alphabet=DEFAULT_LMFE_ALPHABET + "\n\r\t" + CJK_ALPHABET + CJK_SYMBOLS,
+            max_consecutive_whitespaces=4,
+            force_json_field_order=True,
+            max_json_array_length=5,
+        ),
+    )
+
+JSON_SCHEMA_PARSER = build_json_schema_parser(NLUResponseModel.model_json_schema())
+ROUTE_JSON_SCHEMA_PARSER = build_json_schema_parser(NLURouteResponseModel.model_json_schema())
+INTENT_JSON_SCHEMA_PARSER = build_json_schema_parser(NLUIntentResponseModel.model_json_schema())
 
 # 模型和 Tokenizer 加载 (懒加载)
 tokenizer = None
 model = None
 prefix_allowed_tokens_fn = None
+route_prefix_allowed_tokens_fn = None
+intent_prefix_allowed_tokens_fn = None
 
 def apply_safety_overrides(result_dict: dict, query: str) -> dict:
     lowered_query = query.lower()
@@ -138,6 +164,44 @@ def put_top_candidate(result_dict: dict, intent: str, slots: dict | None = None,
     result_dict["candidate_intents"] = deduped_candidates
     return result_dict
 
+def extract_first_number(text: str) -> str:
+    digits = []
+    for char in text:
+        if char.isdigit():
+            digits.append(char)
+        elif digits:
+            break
+    return "".join(digits)
+
+def apply_slot_overrides(result_dict: dict, query: str) -> dict:
+    candidates = result_dict.get("candidate_intents") or []
+    if result_dict.get("domain") != "A" or not candidates:
+        return result_dict
+
+    top_candidate = candidates[0]
+    intent = str(top_candidate.get("intent") or "")
+    slots = dict(top_candidate.get("slots") or {})
+    source_text = query + " " + str(result_dict.get("rewritten_query") or "")
+    number = extract_first_number(source_text)
+
+    if number and intent in {
+        "Set_Air_Condition_Temperature",
+        "Inc_Air_Condition_Temperature",
+        "Dec_Air_Condition_Temperature",
+    }:
+        slots.setdefault("Number", number)
+    elif number and intent in {
+        "Set_Sound_Volume",
+        "Inc_Sound_Volume",
+        "Dec_Sound_Volume",
+    }:
+        slots.setdefault("Number", number)
+
+    top_candidate["slots"] = slots
+    candidates[0] = top_candidate
+    result_dict["candidate_intents"] = candidates
+    return result_dict
+
 def apply_context_overrides(result_dict: dict, query: str, history: list) -> dict:
     if not result_dict.get("is_safe", True):
         return result_dict
@@ -177,12 +241,14 @@ def apply_context_overrides(result_dict: dict, query: str, history: list) -> dic
     return result_dict
 
 def load_model():
-    global tokenizer, model, prefix_allowed_tokens_fn
+    global tokenizer, model, prefix_allowed_tokens_fn, route_prefix_allowed_tokens_fn, intent_prefix_allowed_tokens_fn
     if model is None:
         print(f"[*] 正在加载 Gemma 3 1B 端侧大模型: {MODEL_DIR}")
         device = "cuda" if torch.cuda.is_available() else "cpu"
         tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
         prefix_allowed_tokens_fn = build_transformers_prefix_allowed_tokens_fn(tokenizer, JSON_SCHEMA_PARSER)
+        route_prefix_allowed_tokens_fn = build_transformers_prefix_allowed_tokens_fn(tokenizer, ROUTE_JSON_SCHEMA_PARSER)
+        intent_prefix_allowed_tokens_fn = build_transformers_prefix_allowed_tokens_fn(tokenizer, INTENT_JSON_SCHEMA_PARSER)
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_DIR, 
             dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
@@ -266,19 +332,117 @@ def build_messages(query: str, history: list):
     ]
     return messages
 
-def build_generate_kwargs(query: str, history: list):
-    messages = build_messages(query, history)
+def format_history_text(history: list) -> str:
+    if not history:
+        return "无"
+    return json.dumps(history[-2:], ensure_ascii=False)
+
+def build_route_messages(query: str, history: list):
+    TRAIN_ROUTE_PROMPT = """你是车载智能座舱 NLU 的第一阶段路由器。只判断领域、安全和改写，不抽取意图。
+
+【输出字段】
+只能输出单行 JSON：domain、is_safe、reject_reason、rewritten_query。
+
+【领域定义】
+- A：车控、多媒体、导航、电话等需要车机执行动作的指令，例如打开空调、调高音量、导航去公司、怎么把车窗打开。
+- B：车辆功能、说明书、保养、故障灯、按钮含义等用车知识咨询，不要求立即执行动作。
+- C：与车辆无关的闲聊、百科、故事、笑话、计算、天气等通用对话。
+- D：误触发、无意义语气词、忘记要做什么、非人机对话，或包含辱骂/违法/危险/绕过安全机制的内容。
+
+【安全规则】
+- 辱骂、攻击、人身侮辱、仇恨、违法、危险操作、诱导绕过安全机制：domain="D"，is_safe=false，reject_reason 写简短原因。
+- 无意义但无害：domain="D"，is_safe=true，reject_reason=""。
+- 车辆问答和普通闲聊只要无风险，is_safe=true。
+
+【多轮改写】
+对话历史中的 assistant 轮可能带 metadata.intent、metadata.slots、metadata.rewritten_query。当前句子如果是“再高点/再低点/再大点/关掉它”等省略句，应结合最近 metadata 把 rewritten_query 补全。
+
+【示例】
+输入：胎压报警灯亮了怎么办
+输出：{"domain":"B","is_safe":true,"reject_reason":"","rewritten_query":"胎压报警灯亮了怎么办"}
+输入：讲个笑话
+输出：{"domain":"C","is_safe":true,"reject_reason":"","rewritten_query":"讲个笑话"}
+输入：那啥……我忘了要干啥
+输出：{"domain":"D","is_safe":true,"reject_reason":"","rewritten_query":"那啥……我忘了要干啥"}
+输入：你个傻逼
+输出：{"domain":"D","is_safe":false,"reject_reason":"包含辱骂、攻击性或不文明表达","rewritten_query":"你个傻逼"}
+输入：打开空调
+输出：{"domain":"A","is_safe":true,"reject_reason":"","rewritten_query":"打开空调"}"""
+
+    return [
+        {"role": "system", "content": TRAIN_ROUTE_PROMPT},
+        {"role": "user", "content": f"对话历史:\n{format_history_text(history)}\n最新指令: {query}"},
+    ]
+
+def build_intent_messages(query: str, history: list, route_result: dict):
+    rewritten_query = route_result.get("rewritten_query") or query
+    TRAIN_INTENT_PROMPT = """你是车载智能座舱 NLU 的第二阶段意图抽取器。输入已经被第一阶段判定为安全的 A 类车控/多媒体/导航/电话指令。
+
+【任务】
+只输出 candidate_intents，最多 5 个，按可能性从高到低排列。每个候选包含 intent 和 slots。
+
+【约束】
+- 只能输出单行 JSON，不要 markdown。
+- 不要输出 domain、is_safe、reject_reason、rewritten_query、function、解释文本。
+- 没有槽位时 slots 输出 {}。
+- 温度、音量等数值槽位使用 Number，例如“22度”输出 {"Number":"22"}。
+
+【示例】
+输入：打开空调
+输出：{"candidate_intents":[{"intent":"Open_Air_Condition","slots":{}},{"intent":"Open_AC","slots":{}}]}
+输入：把空调调到22度
+输出：{"candidate_intents":[{"intent":"Set_Air_Condition_Temperature","slots":{"Number":"22"}},{"intent":"Open_Air_Condition","slots":{}}]}
+输入：这首歌太难听了，切歌
+输出：{"candidate_intents":[{"intent":"Media_Next","slots":{}},{"intent":"Media_Pause","slots":{}},{"intent":"Close_Player","slots":{}}]}"""
+
+    return [
+        {"role": "system", "content": TRAIN_INTENT_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"对话历史:\n{format_history_text(history)}\n"
+                f"原始指令: {query}\n"
+                f"改写指令: {rewritten_query}"
+            ),
+        },
+    ]
+
+def build_generate_kwargs_from_messages(messages: list, prefix_fn, max_new_tokens: int):
     prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     generate_kwargs = {
         **inputs,
-        "max_new_tokens": 1024,
+        "max_new_tokens": max_new_tokens,
         "do_sample": False,
         "pad_token_id": tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
         "eos_token_id": tokenizer.eos_token_id,
-        "prefix_allowed_tokens_fn": prefix_allowed_tokens_fn,
+        "prefix_allowed_tokens_fn": prefix_fn,
     }
     return inputs, generate_kwargs
+
+def build_generate_kwargs(query: str, history: list):
+    return build_generate_kwargs_from_messages(
+        build_messages(query, history),
+        prefix_allowed_tokens_fn,
+        max_new_tokens=1024,
+    )
+
+def generate_text(messages: list, prefix_fn, max_new_tokens: int) -> tuple[str, dict]:
+    inputs, generate_kwargs = build_generate_kwargs_from_messages(messages, prefix_fn, max_new_tokens)
+    started_at = time.perf_counter()
+    with torch.no_grad():
+        output_ids = model.generate(**generate_kwargs)
+    latency_ms = (time.perf_counter() - started_at) * 1000
+
+    input_length = generate_kwargs["input_ids"].shape[1]
+    generated_ids = output_ids[0][input_length:]
+    result_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    return clean_generated_text(result_text), {
+        "latency_ms": round(latency_ms, 2),
+        "input_tokens": int(input_length),
+        "output_tokens": int(generated_ids.shape[0]),
+        "max_new_tokens": max_new_tokens,
+    }
 
 def clean_generated_text(result_text: str) -> str:
     # 清理可能存在的 markdown 标签
@@ -288,35 +452,44 @@ def clean_generated_text(result_text: str) -> str:
         result_text = result_text[:-3]
     return result_text.strip()
 
+def route_only_dict(result_dict: dict, query: str) -> dict:
+    return {
+        "domain": result_dict.get("domain", "D"),
+        "is_safe": bool(result_dict.get("is_safe", True)),
+        "reject_reason": str(result_dict.get("reject_reason") or ""),
+        "rewritten_query": str(result_dict.get("rewritten_query") or query),
+    }
+
+def apply_compat_fields(result_dict: dict) -> dict:
+    domain = result_dict.get("domain", "A")
+    is_safe = result_dict.get("is_safe", True)
+
+    if domain == "A" and is_safe and len(result_dict.get("candidate_intents", [])) > 0:
+        top_intent = result_dict["candidate_intents"][0]
+        intent_str = str(top_intent.get("intent", "Unknown"))
+        if intent_str not in valid_intents:
+            print(f"[WARN] 大模型生成了未定义的意图 {intent_str}，强制降级为 Unknown")
+            intent_str = "Unknown"
+
+        result_dict["function"] = intent_str
+        result_dict["intent"] = intent_str
+        result_dict["slots"] = top_intent.get("slots", {})
+    else:
+        result_dict["candidate_intents"] = []
+        result_dict["function"] = "Unknown"
+        result_dict["intent"] = "Unknown"
+        result_dict["slots"] = {}
+    return result_dict
+
 def parse_result_text(result_text: str, query: str, history: list | None = None) -> dict:
     result_text = clean_generated_text(result_text)
     try:
-        # Fallback to json loads since lmformatenforcer is removed
         result_dict = json.loads(result_text)
         result_dict = apply_safety_overrides(result_dict, query)
         result_dict = apply_context_overrides(result_dict, query, history or [])
-        
-        # 为了兼容 workflow 中期待的 function/intent 等顶层字段
-        domain = result_dict.get("domain", "A")
-        is_safe = result_dict.get("is_safe", True)
-        
-        if domain == "A" and is_safe and len(result_dict.get("candidate_intents", [])) > 0:
-            top_intent = result_dict["candidate_intents"][0]
-            intent_str = str(top_intent.get("intent", "Unknown"))
-            # 强校验：如果生成的意图不在合法列表中，降级为 Unknown
-            if intent_str not in valid_intents:
-                print(f"[WARN] 大模型生成了未定义的意图 {intent_str}，强制降级为 Unknown")
-                intent_str = "Unknown"
-            
-            result_dict["function"] = intent_str
-            result_dict["intent"] = intent_str
-            result_dict["slots"] = top_intent.get("slots", {})
-        else:
-            result_dict["function"] = "Unknown"
-            result_dict["intent"] = "Unknown"
-            result_dict["slots"] = {}
-            
-        return result_dict
+        result_dict = apply_slot_overrides(result_dict, query)
+        result_dict.setdefault("candidate_intents", [])
+        return apply_compat_fields(result_dict)
     except Exception as e:
         print(f"[ERR] JSON 解析或格式错误: {e}")
         return {
@@ -330,10 +503,91 @@ def parse_result_text(result_text: str, query: str, history: list | None = None)
             "error": str(e)
         }
 
+def parse_route_text(result_text: str, query: str, history: list | None = None) -> dict:
+    result_text = clean_generated_text(result_text)
+    try:
+        result_dict = json.loads(result_text)
+        result_dict = route_only_dict(result_dict, query)
+        result_dict = apply_safety_overrides(result_dict, query)
+        result_dict = apply_context_overrides(result_dict, query, history or [])
+        return route_only_dict(result_dict, query)
+    except Exception as e:
+        print(f"[ERR] Route JSON 解析或格式错误: {e}")
+        fallback = {
+            "domain": "D" if is_harmless_d_query(query) else "A",
+            "is_safe": True,
+            "reject_reason": "",
+            "rewritten_query": query,
+        }
+        fallback = apply_safety_overrides(fallback, query)
+        return route_only_dict(fallback, query)
+
+def parse_intent_text(result_text: str, query: str, route_result: dict, history: list | None = None) -> dict:
+    result_text = clean_generated_text(result_text)
+    try:
+        intent_dict = json.loads(result_text)
+        candidates = intent_dict.get("candidate_intents") or []
+    except Exception as e:
+        print(f"[ERR] Intent JSON 解析或格式错误: {e}")
+        candidates = []
+
+    result_dict = {
+        **route_only_dict(route_result, query),
+        "candidate_intents": candidates,
+    }
+    result_dict = apply_safety_overrides(result_dict, query)
+    result_dict = apply_context_overrides(result_dict, query, history or [])
+    result_dict = apply_slot_overrides(result_dict, query)
+    return apply_compat_fields(result_dict)
+
 class NLURequest(BaseModel):
     query: str
     trace_id: str = "unknown"
     history: list = []
+
+class NLUIntentRequest(NLURequest):
+    route: dict | None = None
+    rewritten_query: str | None = None
+
+def run_route(query: str, history: list) -> tuple[dict, dict]:
+    result_text, metrics = generate_text(
+        build_route_messages(query, history),
+        route_prefix_allowed_tokens_fn,
+        max_new_tokens=256,
+    )
+    print(f"[Gemma 3][Route] 推理结果:\n{result_text}")
+    return parse_route_text(result_text, query, history), metrics
+
+def run_intent(query: str, history: list, route_result: dict) -> tuple[dict, dict]:
+    if route_result.get("domain") != "A" or not route_result.get("is_safe", True):
+        skipped = {
+            "latency_ms": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "max_new_tokens": 0,
+            "skipped": True,
+        }
+        return apply_compat_fields({**route_only_dict(route_result, query), "candidate_intents": []}), skipped
+
+    result_text, metrics = generate_text(
+        build_intent_messages(query, history, route_result),
+        intent_prefix_allowed_tokens_fn,
+        max_new_tokens=512,
+    )
+    print(f"[Gemma 3][Intent] 推理结果:\n{result_text}")
+    return parse_intent_text(result_text, query, route_result, history), metrics
+
+def run_two_stage(query: str, history: list) -> dict:
+    started_at = time.perf_counter()
+    route_result, route_metrics = run_route(query, history)
+    full_result, intent_metrics = run_intent(query, history, route_result)
+    full_result["_metrics"] = {
+        "mode": "two_stage",
+        "route": route_metrics,
+        "intent": intent_metrics,
+        "total_latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+    }
+    return full_result
 
 @app.post("/chatnlu/v1")
 async def gemma_infer(req: NLURequest, request: Request):
@@ -353,6 +607,64 @@ async def gemma_infer(req: NLURequest, request: Request):
     
     print(f"[Gemma 3] 推理结果:\n{result_text}")
     return parse_result_text(result_text, query, req.history)
+
+@app.post("/chatnlu/route")
+async def gemma_route(req: NLURequest, request: Request):
+    load_model()
+
+    query = req.query.strip()
+    route_result, route_metrics = run_route(query, req.history)
+    route_result["_metrics"] = {
+        "mode": "route",
+        "route": route_metrics,
+        "total_latency_ms": route_metrics["latency_ms"],
+    }
+    return route_result
+
+@app.post("/chatnlu/intent")
+async def gemma_intent(req: NLUIntentRequest, request: Request):
+    load_model()
+
+    query = req.query.strip()
+    route_result = req.route
+    route_metrics = {
+        "latency_ms": 0.0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "max_new_tokens": 0,
+        "provided": True,
+    }
+    if route_result is None:
+        if req.rewritten_query:
+            route_result = {
+                "domain": "A",
+                "is_safe": True,
+                "reject_reason": "",
+                "rewritten_query": req.rewritten_query,
+            }
+        else:
+            route_result, route_metrics = run_route(query, req.history)
+
+    full_result, intent_metrics = run_intent(query, req.history, route_result)
+    return {
+        "candidate_intents": full_result.get("candidate_intents", []),
+        "function": full_result.get("function", "Unknown"),
+        "intent": full_result.get("intent", "Unknown"),
+        "slots": full_result.get("slots", {}),
+        "_metrics": {
+            "mode": "intent",
+            "route": route_metrics,
+            "intent": intent_metrics,
+            "total_latency_ms": round(route_metrics["latency_ms"] + intent_metrics["latency_ms"], 2),
+        },
+    }
+
+@app.post("/chatnlu/v2")
+async def gemma_infer_v2(req: NLURequest, request: Request):
+    load_model()
+
+    query = req.query.strip()
+    return run_two_stage(query, req.history)
 
 @app.post("/chatnlu/stream")
 async def gemma_stream(req: NLURequest, request: Request):

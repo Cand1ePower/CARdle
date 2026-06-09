@@ -297,7 +297,13 @@ def actual_candidate_intents(actual: dict[str, Any]) -> list[str]:
     return candidates
 
 
-def evaluate_case(case: EvalCase, actual: dict[str, Any] | None, error: str | None = None) -> dict[str, Any]:
+def evaluate_case(
+    case: EvalCase,
+    actual: dict[str, Any] | None,
+    error: str | None = None,
+    ignore_intent: bool = False,
+    latency_ms: float | None = None,
+) -> dict[str, Any]:
     expected = case.expected
     checks: dict[str, bool | None] = {
         "request_ok": actual is not None and error is None,
@@ -314,7 +320,7 @@ def evaluate_case(case: EvalCase, actual: dict[str, Any] | None, error: str | No
             checks["is_safe_match"] = actual.get("is_safe") == expected.get("is_safe")
 
         expected_intents = normalize_intent_list(expected)
-        if expected_intents:
+        if expected_intents and not ignore_intent:
             actual_intents = actual_candidate_intents(actual)
             checks["top1_intent_match"] = bool(actual_intents) and actual_intents[0] in expected_intents
             checks["top5_intent_match"] = any(intent in actual_intents[:5] for intent in expected_intents)
@@ -330,6 +336,7 @@ def evaluate_case(case: EvalCase, actual: dict[str, Any] | None, error: str | No
         "checks": checks,
         "passed": passed,
         "error": error,
+        "latency_ms": latency_ms,
     }
 
 
@@ -350,6 +357,7 @@ def dry_run_case(case: EvalCase) -> dict[str, Any]:
         },
         "passed": True,
         "error": None,
+        "latency_ms": None,
     }
 
 
@@ -368,10 +376,30 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             "applicable": len(applicable),
             "rate": round(matched / len(applicable), 4) if applicable else None,
         }
+    latencies = sorted(
+        float(item["latency_ms"])
+        for item in results
+        if item.get("latency_ms") is not None
+    )
+    if latencies:
+        p95_index = min(len(latencies) - 1, int(len(latencies) * 0.95))
+        summary["latency_ms"] = {
+            "avg": round(sum(latencies) / len(latencies), 2),
+            "max": round(max(latencies), 2),
+            "p95": round(latencies[p95_index], 2),
+            "samples": len(latencies),
+        }
+    else:
+        summary["latency_ms"] = {
+            "avg": None,
+            "max": None,
+            "p95": None,
+            "samples": 0,
+        }
     return summary
 
 
-def run_eval(url: str, cases: list[EvalCase], timeout: float) -> list[dict[str, Any]]:
+def run_eval(url: str, cases: list[EvalCase], timeout: float, ignore_intent: bool) -> list[dict[str, Any]]:
     results = []
     with httpx.Client(timeout=timeout) as client:
         for idx, case in enumerate(cases, 1):
@@ -380,16 +408,25 @@ def run_eval(url: str, cases: list[EvalCase], timeout: float) -> list[dict[str, 
                 "trace_id": f"eval_{idx}",
                 "history": case.history,
             }
+            started_at = time.perf_counter()
             try:
                 response = client.post(url, json=payload)
+                latency_ms = (time.perf_counter() - started_at) * 1000
                 response.raise_for_status()
                 actual = response.json()
-                result = evaluate_case(case, actual)
+                result = evaluate_case(case, actual, ignore_intent=ignore_intent, latency_ms=round(latency_ms, 2))
             except Exception as exc:
-                result = evaluate_case(case, None, error=str(exc))
+                latency_ms = (time.perf_counter() - started_at) * 1000
+                result = evaluate_case(
+                    case,
+                    None,
+                    error=str(exc),
+                    ignore_intent=ignore_intent,
+                    latency_ms=round(latency_ms, 2),
+                )
             results.append(result)
             status = "PASS" if result["passed"] else "FAIL"
-            print(f"[{idx}/{len(cases)}] {status} {case.id} :: {case.query}")
+            print(f"[{idx}/{len(cases)}] {status} {case.id} {result['latency_ms']}ms :: {case.query}")
     return results
 
 
@@ -406,6 +443,7 @@ def main():
     parser.add_argument("--report", default="scratch/gemma_nlu_eval_report.json")
     parser.add_argument("--timeout", type=float, default=240.0)
     parser.add_argument("--ready-timeout", type=float, default=120.0)
+    parser.add_argument("--ignore-intent", action="store_true", help="Skip Top-1/Top-5 intent checks, useful for /chatnlu/route.")
     parser.add_argument("--dry-run", action="store_true", help="Only load cases and write expected report skeleton.")
     args = parser.parse_args()
 
@@ -442,7 +480,7 @@ def main():
         if args.dry_run:
             results = [dry_run_case(case) for case in cases]
         else:
-            results = run_eval(args.url, cases, args.timeout)
+            results = run_eval(args.url, cases, args.timeout, args.ignore_intent)
 
         report = {
             "metadata": {
@@ -450,6 +488,7 @@ def main():
                 "dataset": args.dataset,
                 "limit": args.limit,
                 "offset": args.offset,
+                "ignore_intent": args.ignore_intent,
                 "dry_run": args.dry_run,
             },
             "summary": summarize(results),

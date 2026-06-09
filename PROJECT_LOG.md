@@ -1,6 +1,6 @@
 # CARdle 项目进展与架构日志
 
-> **更新时间**：2026-05-29
+> **更新时间**：2026-06-08
 > **项目定位**：基于微服务架构的大模型 + 本地小模型混合编排智能座舱对话网关
 
 ## 整体架构设计
@@ -150,3 +150,63 @@
   - 最终真实 smoke：7/7 通过，报告写入 `scratch/gemma_nlu_eval_smoke_after_domain_override.json`。
   - 最终真实 dataset 抽样：2/2 通过，报告写入 `scratch/gemma_nlu_eval_dataset2_after_domain_override.json`。
   - 历史兼容性：`ConversationTurn` 旧 JSON 无 metadata 与新 JSON 带 metadata 均可正常反序列化。
+
+### 阶段 2.6：端到端多轮链路与延迟验收
+
+- **目的**：从 Socket.IO 网关入口验证真实两轮链路，而不只测试 `/chatnlu/v1` 单点接口；同时把延迟纳入阶段验收指标。
+- **新增工具**：`tools/eval_multiturn_e2e.py`。
+- **新技术/方法**：
+  - 临时拉起独立端口的 Redis、Arbitration、Gemma NLU、Gateway，避免污染默认开发端口。
+  - 使用 Python Socket.IO 客户端模拟真实前端上行 `request_nlu` 事件。
+  - 使用 Redis history 轮询确认后台 `post_request_tasks` 已写入结构化 metadata。
+  - 报告记录每轮 `first_frame_ms`、`total_ms`、`history_write_ms`，并聚合 avg/max/p95。
+- **端到端数据流**：
+  - 第一轮：`Socket.IO query=把空调调到22度 -> server.py -> Redis history.get(empty) -> LangGraph -> Gemma NLU -> Arbitration(Mock) -> Tool Dispatcher -> Redis history metadata write`。
+  - 第二轮：`Socket.IO query=再高点 -> server.py -> Redis history.get(2 turns with metadata) -> Gemma NLU context override -> Inc_Air_Condition_Temperature -> Tool Dispatcher -> Redis history metadata write`。
+- **发现并修复的问题**：
+  - 首次 E2E 只校验 intent 时通过，但日志显示 `Set_Air_Condition_Temperature` 的 `slots` 为空，工具实际执行为“打开空调，当前温度24度”，没有设置到 22 度。
+  - 已在 `gemma_nlu_server.py` 增加确定性数字槽位补全：当 Top-1 intent 是空调温度/音量设置或增减，且 query/rewritten_query 中出现阿拉伯数字时，补入 `Number` 槽位。
+  - `tools/eval_multiturn_e2e.py` 同步升级为校验 intent + expected slots，避免“意图对但参数没执行”的假阳性。
+- **测试结果**：
+  - 工具级编译：`python -m py_compile db/models.py db/redis_client.py db/tasks.py server.py function_call/gemma_nlu_server.py tools/eval_gemma_nlu.py tools/eval_multiturn_e2e.py tools/gemma_console.py client/arbitration.py client/nlu.py tools/runner.py` 通过。
+  - E2E 两轮：2/2 通过，报告写入 `scratch/e2e_multiturn_latency_report_after_slot_override.json`。
+  - E2E 验收细节：
+    - 第 1 轮“把空调调到22度”：最终 `intent=Set_Air_Condition_Temperature`，`slots={"Number":"22"}`，工具调用参数 `temperature=22`。
+    - 第 2 轮“再高点”：读取上一轮 metadata，最终 `intent=Inc_Air_Condition_Temperature`，`rewritten_query=把空调温度再调高一点`。
+  - E2E 延迟指标（CPU 本地 Gemma）：
+    - `first_frame_ms.avg=67336.43`，`max=72190.38`，`p95=72190.38`。
+    - `total_ms.avg=67336.43`，`max=72190.38`，`p95=72190.38`。
+    - `history_write_ms.avg=874.87`，`max=1314.74`，`p95=1314.74`。
+  - NLU 回归：真实 smoke 7/7 通过，报告写入 `scratch/gemma_nlu_eval_smoke_after_e2e_slot_override.json`。
+  - Dataset 抽样：`dataset/test.jsonl` 前 2 条 2/2 通过，报告写入 `scratch/gemma_nlu_eval_dataset2_after_e2e_slot_override.json`。
+- **结论**：结构化多轮链路已端到端可用，但当前 CPU Gemma 延迟不可接受。下一阶段优先做“降低首帧/总耗时”的两阶段 NLU 与流式早路由，而不是继续扩大功能面。
+
+### 阶段 3.1：两阶段 Gemma NLU Endpoint 与延迟指标
+
+- **目的**：把原先一次性生成完整 `domain/is_safe/rewritten_query/candidate_intents` 的 `/chatnlu/v1` 拆出可灰度的新链路，为后续“流式早路由”和 B/C/D 类提前响应做准备，同时保留旧主链路兼容。
+- **新技术/方法**：
+  - 在同一个 Gemma 服务内使用三套独立 JSON Schema 受限解码：完整 v1 schema、`NLURouteResponseModel` route-only schema、`NLUIntentResponseModel` intent-only schema。
+  - Pydantic schema 开启 `extra="forbid"`，让 `lm-format-enforcer + prefix_allowed_tokens_fn` 在 token 解码阶段禁止额外字段，减少模型输出解释文本或不存在字段的机会。
+  - `tools/eval_gemma_nlu.py` 增加请求级 `latency_ms` 采样、`avg/max/p95` 汇总和 `--ignore-intent`，用于单独评估 `/chatnlu/route`。
+- **新增/保留 Endpoint**：
+  - `/chatnlu/v1`：旧完整输出路径，保持兼容。
+  - `/chatnlu/route`：第一阶段，只输出 `domain/is_safe/reject_reason/rewritten_query`，并附 `_metrics`。
+  - `/chatnlu/intent`：第二阶段，输入 query/history/可选 route 或 rewritten_query，只返回候选意图、兼容 Top-1 字段和 `_metrics`。
+  - `/chatnlu/v2`：组合路径，先跑 route；只有 `domain=A && is_safe=true` 才继续跑 intent；最终返回旧主链路兼容字段。
+- **数据流**：
+  - Route：`query + history[-2:] -> route prompt -> route JSON Schema constrained decoding -> safety/context override -> route result`。
+  - Intent：`query + rewritten_query + history[-2:] -> intent prompt -> intent JSON Schema constrained decoding -> safety/context/slot override -> function/intent/slots compat fields`。
+  - v2：`route result -> 非 A 或 unsafe 直接 Unknown -> A 且 safe 才执行 intent -> 返回完整 NLU JSON`。
+- **核心数据结构**：
+  - `NLURouteResponseModel`：`domain/reject_reason/is_safe/rewritten_query`。
+  - `NLUIntentResponseModel`：`candidate_intents: [{intent, slots}]`，最多 5 个候选。
+  - `_metrics`：记录 `route.latency_ms/input_tokens/output_tokens`、`intent.latency_ms/input_tokens/output_tokens`、`total_latency_ms`。
+  - 评测报告：每条 case 增加 `latency_ms`，summary 增加 `latency_ms.avg/max/p95/samples`。
+- **测试结果**：
+  - 工具级编译：`python -m py_compile function_call/gemma_nlu_server.py tools/eval_gemma_nlu.py tools/eval_multiturn_e2e.py` 通过。
+  - dry-run：9 条样本加载通过，报告写入 `scratch/gemma_route_eval_dry_run.json`。
+  - `/chatnlu/route` 真实 smoke：7/7 通过，报告写入 `scratch/gemma_route_eval_smoke.json`；HTTP 延迟 `avg=29213.51ms`、`max/p95=73601.40ms`、去掉冷启动首条后 `warm_avg=21815.53ms`。
+  - `/chatnlu/v2` 真实 smoke：7/7 通过，Top-1/Top-5 全中，报告写入 `scratch/gemma_nlu_eval_smoke_v2.json`；HTTP 延迟 `avg=38809.39ms`、`max/p95=86437.76ms`、`warm_avg=30871.33ms`。
+  - `/chatnlu/v2` dataset 抽样：2/2 通过，报告写入 `scratch/gemma_nlu_eval_dataset2_v2.json`；HTTP 延迟 `avg=46102.19ms`、`max/p95=64689.37ms`、`warm_avg=27515.01ms`。
+  - `/chatnlu/v1` 兼容 smoke：7/7 通过，报告写入 `scratch/gemma_nlu_eval_smoke_v1_after_two_stage.json`；HTTP 延迟 `avg=52697.16ms`、`max/p95=113587.48ms`、`warm_avg=42548.77ms`。
+- **阶段结论**：两阶段拆分已可用，且 B/C/D 类在 v2 中会跳过 intent 阶段。CPU 环境下 route-only warm 平均约 21.8 秒，v2 warm 平均约 30.9 秒，旧 v1 warm 平均约 42.5 秒；下一步应把网关接到 `/chatnlu/v2` 或进一步做流式字段级早路由，验证真实前端首帧是否下降。
