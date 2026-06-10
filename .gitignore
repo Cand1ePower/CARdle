@@ -35,6 +35,7 @@ train/**/*.onnx
 train/**/*.tflite
 train/**/*.task
 notes/
+INTERVIEW_PREP.md
 
 # === 故障排除与本地调试记录 ===
 troubleshooting/
