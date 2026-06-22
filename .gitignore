@@ -37,6 +37,10 @@ train/**/*.task
 notes/
 INTERVIEW_PREP.md
 
+# === 项目内部私有文档（面试备用，不提交）===
+docs/AI_TEST_LEARNING_GUIDE.md
+docs/CARDLE_TEST_ROADMAP.md
+
 # === 故障排除与本地调试记录 ===
 troubleshooting/
 scratch/
@@ -68,4 +72,8 @@ htmlcov/
 
 cal.py
 
-tests/
+# === 已废弃文件（内容已迁移到 tools/ 或 tests/，等待手动删除）===
+evaluate_model.py
+evaluate_offline.py
+test_ui_automation.py
+e2e_test_report.json
